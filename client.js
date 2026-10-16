@@ -488,7 +488,15 @@ window.__ModuleLoader__.load({
         const t = ctx.locale.bind('fileFinder')
         if (typeof ctx.inject === 'function') {
           ctx.inject(['shortcuts'], (scoped) => {
-            scoped.effect(() => scoped.shortcuts.register(shortcut(
+            const register = (command) => {
+              try {
+                return scoped.shortcuts.register(command)
+              } catch (error) {
+                console.error('dsh-file-finder shortcut was not registered', error)
+                return () => {}
+              }
+            }
+            scoped.effect(() => register(shortcut(
               'files.searchName',
               () => t('shortcutName'),
               ['find file', 'go to file', 'search file name'],
@@ -496,7 +504,7 @@ window.__ModuleLoader__.load({
               { code: 'KeyP', modifiers: ['primary', 'shift'] },
               'name',
             )))
-            scoped.effect(() => scoped.shortcuts.register(shortcut(
+            scoped.effect(() => register(shortcut(
               'files.searchContent',
               () => t('shortcutContent'),
               ['search file content', 'find in files'],
