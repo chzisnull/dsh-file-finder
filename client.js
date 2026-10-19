@@ -99,6 +99,9 @@ window.__ModuleLoader__.load({
         savedPrefs: '已保存',
         reset: '恢复默认设置',
         resetDone: '已恢复默认设置',
+        settingsBot: 'DS Bot',
+        settingsBotHint: '在 Bot 模式和经典 Agent 模式之间切换。只在检测到 DS Bot 插件时出现。',
+        shortcutBot: '切换 Bot / 经典 Agent 模式',
       },
       en: {
         title: 'File Finder',
@@ -179,6 +182,9 @@ window.__ModuleLoader__.load({
         savedPrefs: 'Saved',
         reset: 'Reset to defaults',
         resetDone: 'Defaults restored',
+        settingsBot: 'DS Bot',
+        settingsBotHint: 'Switches between Bot mode and classic Agent mode. This section appears only when the DS Bot plugin is installed.',
+        shortcutBot: 'Toggle Bot / classic Agent mode',
       },
     }
 
@@ -246,6 +252,98 @@ window.__ModuleLoader__.load({
         prefs.revision += 1
         try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(prefs.state)) } catch { /* private mode */ }
         prefs.listeners.forEach((listener) => listener())
+      },
+    }
+
+    // ── DS Bot bridge (optional) ────────────────────────────────────────────
+    // DS Bot keeps its Bot / classic-Agent surface switch private: it exposes no
+    // client service, so the only stable things another plugin can use are the
+    // module id in the boot graph and the controls DS Bot itself renders. The
+    // bridge below does exactly that, and every entry point is inert unless the
+    // DS Bot client module is part of this boot — no command, no settings row,
+    // no key handler, no side effects.
+    const BOT_MODULE_ID = 'ds-bot'
+
+    function botModuleLoaded() {
+      try {
+        if (typeof window === 'undefined' || !window.__DSH_BOOT__) return false
+        const boot = window.__DSH_BOOT__
+        const graph = boot.graph && typeof boot.graph === 'object' ? boot.graph : boot
+        const entries = Array.isArray(graph.entries) ? graph.entries : []
+        for (const entry of entries) {
+          if (!entry || typeof entry !== 'object') continue
+          const id = String(entry.id || '')
+          const url = String(entry.url || '')
+          if (id === BOT_MODULE_ID || id.endsWith('/' + BOT_MODULE_ID)) return true
+          if (url.includes('/' + BOT_MODULE_ID + '/')) return true
+        }
+      } catch { /* a shell without a boot graph simply has no DS Bot */ }
+      return false
+    }
+
+    function botSurfaceMode() {
+      if (typeof document === 'undefined') return ''
+      try {
+        // DS Bot renders `.bt-return` only in classic Agent mode and `.bt-account`
+        // only while its Bot shell is mounted, so one probe tells the two apart.
+        if (document.querySelector('.bt-return')) return 'agent'
+        if (document.querySelector('.bt-account')) return 'bot'
+      } catch { /* a detached document has no surface */ }
+      return ''
+    }
+
+    function pickBotMenuToggle() {
+      const menu = document.querySelector('.bt-account-menu')
+      if (!menu) return false
+      const items = Array.from(menu.querySelectorAll('[role="menuitem"]'))
+      if (!items.length) return false
+      // Match the localized label when we know it, otherwise take the last item:
+      // the surface switch is the only entry in the account menu's second group.
+      const item = items.find((node) => /经典|classic/i.test(node.textContent || '')) || items[items.length - 1]
+      item.click()
+      return true
+    }
+
+    function botToAgent() {
+      // The account menu may already be open (the user opened it by hand);
+      // switching from it directly beats closing it with a second trigger click.
+      if (pickBotMenuToggle()) return true
+      const trigger = document.querySelector('.bt-account')
+      if (!trigger) return false
+      trigger.click()
+      if (pickBotMenuToggle()) return true
+      // React can flush the portal one tick after the click; retry once. If the
+      // menu never shows up, close it again instead of leaving it stranded.
+      setTimeout(() => {
+        if (pickBotMenuToggle()) return
+        const again = document.querySelector('.bt-account')
+        if (again && document.querySelector('.bt-account-menu')) again.click()
+      }, 0)
+      return true
+    }
+
+    function botToBot() {
+      const back = document.querySelector('.bt-return')
+      if (!back) return false
+      back.click()
+      return true
+    }
+
+    const botBridge = {
+      installed: false,
+      lastToggleAt: 0,
+      detect() {
+        if (!botBridge.installed) botBridge.installed = botModuleLoaded()
+        return botBridge.installed
+      },
+      toggle() {
+        if (!botBridge.detect()) return false
+        const now = Date.now()
+        // The keydown handler and a shortcut the user assigned in Settings can
+        // both fire for one keystroke; collapse the duplicate.
+        if (now - botBridge.lastToggleAt < 300) return false
+        botBridge.lastToggleAt = now
+        return botSurfaceMode() === 'agent' ? botToBot() : botToAgent()
       },
     }
 
@@ -317,7 +415,7 @@ window.__ModuleLoader__.load({
     // Registering the command unbound keeps it visible and assignable in
     // Settings → Shortcuts without ever claiming a key from another plugin;
     // the VS Code keys below come from our own keydown handler.
-    function shortcut(id, label, aliases, mode) {
+    function shortcut(id, label, aliases, run) {
       return {
         id,
         label,
@@ -325,7 +423,7 @@ window.__ModuleLoader__.load({
         defaults: {},
         regions: ['page', 'editable', 'terminal'],
         modals: [],
-        resolve: () => ({ status: 'handled', run: () => store.openSearch(mode) }),
+        resolve: () => ({ status: 'handled', run }),
       }
     }
 
@@ -346,6 +444,18 @@ window.__ModuleLoader__.load({
         return
       }
       store.openSearch(nameSearch ? 'name' : 'content')
+    }
+
+    // The DS Bot bridge owns its own key: Cmd/Ctrl+Shift+B, free of DSH's own
+    // desktop defaults (`sidebar.left.toggle` is Cmd/Ctrl+B there). It is only
+    // installed when DS Bot is part of this boot.
+    function onBotKey(event) {
+      if (event.defaultPrevented || event.repeat || event.isComposing || event.altKey) return
+      if (!isPrimary(event) || !event.shiftKey || event.code !== 'KeyB') return
+      if (!botBridge.detect()) return
+      event.preventDefault()
+      event.stopPropagation()
+      botBridge.toggle()
     }
 
     function extOf(name) {
@@ -1345,6 +1455,9 @@ window.__ModuleLoader__.load({
       }, [draft.extraIgnore])
       const shortcutName = mac ? ['⌘', 'P'] : ['Ctrl', 'P']
       const shortcutContent = mac ? ['⇧', '⌘', 'F'] : ['Ctrl', 'Shift', 'F']
+      const shortcutBot = mac ? ['⇧', '⌘', 'B'] : ['Ctrl', 'Shift', 'B']
+      // Shown only while DS Bot is part of this boot; `detect()` caches the answer.
+      const botInstalled = botBridge.detect()
 
       return h('div', { className: 'dff-settings', 'data-dff-settings': 'true' },
         h('style', null, css),
@@ -1437,6 +1550,20 @@ window.__ModuleLoader__.load({
                 ],
                 onChange: (value) => update({ openMode: value }),
               })))),
+
+        botInstalled ? h('section', { className: 'dff-card', style: { '--i': 3 }, 'data-dff-bot': 'true' },
+          h('div', { className: 'dff-card-head' },
+            h('h3', null, t('settingsBot')),
+            h('p', null, t('settingsBotHint'))),
+          h('div', { className: 'dff-card-body' },
+            h('div', { className: 'dff-srow' },
+              h('div', { className: 'dff-srow-text' },
+                h('strong', null, t('shortcutBot')),
+                h(Keycaps, { keys: shortcutBot })),
+              h('button', {
+                type: 'button', className: 'dff-try',
+                onClick: () => { if (props.close) props.close(); botBridge.toggle() },
+              }, t('tryIt'))))) : null,
 
         h('footer', { className: 'dff-settings-foot' },
           h('button', { type: 'button', className: 'dff-reset', onClick: reset }, t('reset')),
@@ -2167,6 +2294,9 @@ window.__ModuleLoader__.load({
         function start(ctx) {
           ctx.effect(() => ctx.locale.register('fileFinder', dict))
           const t = ctx.locale.bind('fileFinder')
+          // Optional integration: without DS Bot's client module in this boot,
+          // nothing below is registered or installed.
+          const botReady = botBridge.detect()
           if (typeof ctx.inject === 'function') {
             ctx.inject(['shortcuts'], (scoped) => {
               const register = (command) => {
@@ -2181,20 +2311,34 @@ window.__ModuleLoader__.load({
                 'files.searchName',
                 () => t('shortcutName'),
                 ['find file', 'go to file', 'quick open'],
-                'name',
+                () => store.openSearch('name'),
               )))
               scoped.effect(() => register(shortcut(
                 'files.searchContent',
                 () => t('shortcutContent'),
                 ['search file content', 'find in files'],
-                'content',
+                () => store.openSearch('content'),
               )))
+              if (botReady) {
+                scoped.effect(() => register(shortcut(
+                  'files.toggleBotMode',
+                  () => t('shortcutBot'),
+                  ['bot mode', 'classic agent mode', 'toggle bot'],
+                  () => { botBridge.toggle() },
+                )))
+              }
             })
           }
           ctx.effect(() => {
             document.addEventListener('keydown', onVsCodeKey, true)
             return () => document.removeEventListener('keydown', onVsCodeKey, true)
           })
+          if (botReady) {
+            ctx.effect(() => {
+              document.addEventListener('keydown', onBotKey, true)
+              return () => document.removeEventListener('keydown', onBotKey, true)
+            })
+          }
           const Search = bound(Palette, t)
           const Settings = (props) => h(SettingsPage, { ...props, t, ctx })
           ctx.slots.inject('shell.overlay', () => ctx.slots.register({

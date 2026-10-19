@@ -11,6 +11,7 @@ A DeepSeek Harness plugin for finding workspace files without leaving DSH: searc
 - **Open natively**: Enter opens the file in DSH's right-sidebar document preview, the same surface the Files tab uses, and jumps to the matching line for content hits.
 - **Edit in place** when you need to: ⌘/Ctrl+Enter opens the built-in editor, which saves through DSH's workspace filesystem and refuses to overwrite a file that changed after it was loaded.
 - **Native shortcuts**: Cmd/Ctrl+P and Cmd/Ctrl+Shift+F, like VS Code, without claiming a default binding in DSH's shortcut registry.
+- **Optional DS Bot bridge**: when the DS Bot plugin is installed, Cmd/Ctrl+Shift+B flips between Bot mode and classic Agent mode; without it neither the shortcut nor its settings card exists.
 - **A redesigned settings page** with cards, keycaps, steppers, and switches, plus an "Opening" preference that chooses whether Enter previews or edits.
 - **Polished interaction**: a frosted command palette, spring-eased mode switch, selected-row rail, loading skeletons, and reduced-motion support.
 
@@ -33,10 +34,21 @@ When the native preview is unavailable (no live Session, or a shell without the 
 | --- | --- |
 | Search by file name | Cmd/Ctrl+P |
 | Search by content | Cmd/Ctrl+Shift+F |
+| Toggle DS Bot / classic Agent mode (only with the DS Bot plugin installed) | Cmd/Ctrl+Shift+B |
 
 The commands are registered with DSH's shortcut service so you can assign your own keys in **Settings → Edit shortcuts**, but they declare **no default binding**. DSH's registry throws when one command's default overlaps another's, and it throws from inside the *other* plugin's `apply()`, so claiming Cmd+Shift+F here took the whole Web UI boot down (`Conflicting shortcut defaults: session.fork and files.searchContent`). The VS Code keys above are served by this plugin's own keydown handler instead.
 
 Note that Cmd+Shift+F is DSH's own "fork session" binding; this plugin uses it for content search, so rebind `session.fork` in **Settings → Edit shortcuts** if you relied on it.
+
+In the browser Web shell (not the desktop app), Cmd+Shift+B is DSH's right-sidebar toggle. With DS Bot installed this plugin takes that key for the mode switch, so assign a different key to `files.toggleBotMode` in **Settings → Edit shortcuts** if you need the sidebar binding there. On the desktop app the combination is free.
+
+## DS Bot mode switch (optional)
+
+When the DS Bot plugin (`ds-bot`) is part of the running boot, this plugin also offers **Toggle Bot / classic Agent mode** on Cmd/Ctrl+Shift+B, plus a matching card in **Settings → File Finder**.
+
+DS Bot keeps its surface switch private — it exposes no client service — so the bridge does the two things another plugin safely can: it detects `ds-bot` in the boot graph, and it drives the controls DS Bot renders itself (the account menu's surface-switch entry to leave Bot mode, and the DS Bot return pill to come back). Nothing is patched or forked, and DS Bot's own `ds-bot:surface` preference stays authoritative.
+
+Without DS Bot nothing is registered or shown: the command never reaches **Settings → Edit shortcuts**, the settings card stays hidden, and Cmd/Ctrl+Shift+B is left to whatever else owns it.
 
 ## Settings
 
@@ -73,7 +85,13 @@ node --check client.js
 npm test
 ```
 
-`npm test` covers the search helpers, the shortcut-default regression guard, and the UI contract (native preview address, palette hooks, reduced-motion rules).
+`npm test` covers the search helpers, the shortcut-default regression guard, and the UI contract (native preview address, palette hooks, reduced-motion rules, and the DS Bot bridge).
+
+The DS Bot bridge also has a browser check that runs the real key handler against DS Bot's real selectors, with and without `ds-bot` in the boot graph:
+
+```sh
+node preview/bot-check.mjs
+```
 
 The native-integration research — address grammar, session derivation, service access, HMR behavior, and the keep-vs-delegate matrix — is documented in [docs/native-integration.md](docs/native-integration.md).
 

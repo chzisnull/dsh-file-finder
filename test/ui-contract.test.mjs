@@ -69,3 +69,25 @@ test('every settings change is persisted immediately', () => {
   assert.match(source, /prefs\.save\(next\)/)
   assert.match(source, /localStorage\.setItem\(SETTINGS_KEY/)
 })
+
+test('the DS Bot bridge detects its host through the boot graph', () => {
+  assert.match(source, /window\.__DSH_BOOT__/)
+  assert.match(source, /const BOT_MODULE_ID = 'ds-bot'/)
+  assert.match(source, /const botReady = botBridge\.detect\(\)/)
+})
+
+test('the DS Bot command and key handler are inert without DS Bot', () => {
+  // The command is registered inside the `if (botReady)` branch, not before it.
+  assert.match(source, /if \(botReady\) \{\s*scoped\.effect\(\(\) => register\(shortcut\(\s*'files\.toggleBotMode'/)
+  // The keydown listener is installed under the same gate.
+  assert.match(source, /if \(botReady\) \{\s*ctx\.effect\(\(\) => \{\s*document\.addEventListener\('keydown', onBotKey, true\)/)
+  assert.match(source, /function onBotKey\(event\) \{\s*if \(event\.defaultPrevented \|\| event\.repeat \|\| event\.isComposing \|\| event\.altKey\) return/)
+})
+
+test('the DS Bot bridge drives the controls DS Bot renders itself', () => {
+  assert.match(source, /document\.querySelector\('\.bt-return'\)/)
+  assert.match(source, /document\.querySelector\('\.bt-account'\)/)
+  assert.match(source, /\.bt-account-menu/)
+  assert.match(source, /\[role="menuitem"\]/)
+  assert.match(source, /'KeyB'/)
+})

@@ -11,6 +11,7 @@ DeepSeek Harness 插件：在 DSH 里按文件名或文件内容查找工作区�
 - **用 DSH 原生预览打开**：回车后在 DSH 右侧栏的文档预览里打开文件——和文件树点开文件是同一个界面；内容搜索会直接跳到命中行。
 - **需要时再编辑**：⌘/Ctrl+回车打开内置编辑器，保存通过 DSH 的工作区文件系统写回；文件在打开后被别的程序改过时会拒绝覆盖。
 - **VS Code 习惯的快捷键**：⌘/Ctrl+P 与 ⌘/Ctrl+Shift+F，但不占用 DSH 快捷键注册表的默认键位。
+- **可选的 DS Bot 桥接**：装了 DS Bot 插件时，⌘/Ctrl+Shift+B 在 Bot 模式与经典 Agent 模式之间来回切换；没装时快捷键和设置卡片都不存在。
 - **重新设计的设置页**：卡片分组、键帽、步进器和开关，并新增「打开方式」选择，决定回车是预览还是编辑。
 - **更细腻的交互**：磨砂质感的命令面板、弹性切换动画、选中行指示条、加载骨架，以及 reduced-motion 支持。
 
@@ -33,10 +34,21 @@ DeepSeek Harness 插件：在 DSH 里按文件名或文件内容查找工作区�
 | --- | --- | --- |
 | 按文件名 | ⌘/Ctrl+P | ⌘/Ctrl+P |
 | 按内容 | ⇧⌘F / Ctrl+Shift+F | ⇧⌘F / Ctrl+Shift+F |
+| 切换 Bot / 经典 Agent 模式（仅装了 DS Bot 时） | ⇧⌘B / Ctrl+Shift+B | ⇧⌘B / Ctrl+Shift+B |
 
-两个命令都注册到 DSH 的快捷键服务里，可以在 **设置 → 编辑快捷键** 中另外指定键位，但**不声明默认值**。DSH 的快捷键注册表在检测到默认键位撞车时会在*对方*插件里抛错，会把整个界面启动搞崩（`Conflicting shortcut defaults: session.fork and files.searchContent`）。所以上面的 VS Code 键位由插件自己的按键监听实现。
+三个命令都注册到 DSH 的快捷键服务里，可以在 **设置 → 编辑快捷键** 中另外指定键位，但**不声明默认值**。DSH 的快捷键注册表在检测到默认键位撞车时会在*对方*插件里抛错，会把整个界面启动搞崩（`Conflicting shortcut defaults: session.fork and files.searchContent`）。所以上面的 VS Code 键位由插件自己的按键监听实现。
 
 > 注意：⇧⌘F 在 DSH 里原本是「fork 会话」，本插件按 VS Code 习惯把它用于内容搜索。需要原来的 fork 的话，在「设置 → 编辑快捷键」里给 fork 换一个键即可。
+
+> 网页版（非桌面 App）里 ⇧⌘B 原本是 DSH 的右侧栏开关。装了 DS Bot 时本插件会占用这个组合做模式切换；如果网页版里还需要侧栏开关，在「设置 → 编辑快捷键」里给 `files.toggleBotMode` 换一个键即可。桌面版里这个组合是空闲的。
+
+## DS Bot 模式切换（可选）
+
+当前这次启动里带了 DS Bot 客户端模块（`ds-bot`）时，本插件会额外提供 **切换 Bot / 经典 Agent 模式**（⌘/Ctrl+Shift+B），并在 **设置 → 文件查找** 里多一张对应的卡片。
+
+DS Bot 的模式切换是它自己的私有状态，没有对外暴露客户端服务，所以这个桥接只做两件别家插件能安全做的事：从启动清单里识别 `ds-bot`，以及点击 DS Bot 自己渲染的控件（账号菜单里第二组的那一项用于离开 Bot 模式，DS Bot 的返回按钮用于切回来）。不 patch、不 fork，模式的真实来源仍然是 DS Bot 自己的 `ds-bot:surface` 偏好。
+
+没装 DS Bot 时什么都不会注册或显示：命令不会出现在 **设置 → 编辑快捷键** 里，设置卡片隐藏，⌘/Ctrl+Shift+B 留给原本占用它的功能。
 
 ## 设置
 
@@ -47,6 +59,7 @@ DeepSeek Harness 插件：在 DSH 里按文件名或文件内容查找工作区�
 - 额外忽略的目录（输入时实时显示为标签）
 - 文件名 / 内容结果数量上限（步进器）
 - 回车默认动作：**侧栏预览** 或 **内置编辑**
+- DS Bot 模式切换（只有装了 DS Bot 时才出现）
 - 恢复默认设置；修改后自动保存
 
 ## 编辑
@@ -71,7 +84,13 @@ node --check client.js
 npm test
 ```
 
-`npm test` 覆盖搜索函数、快捷键默认值的防回归测试，以及 UI 契约（原生预览地址、面板钩子、reduced-motion 规则）。
+`npm test` 覆盖搜索函数、快捷键默认值的防回归测试，以及 UI 契约（原生预览地址、面板钩子、reduced-motion 规则、DS Bot 桥接）。
+
+DS Bot 桥接还有一个浏览器检查，用 DS Bot 真实的类名跑一遍按键逻辑，分别验证启动清单里有 / 没有 `ds-bot` 两种情况：
+
+```sh
+node preview/bot-check.mjs
+```
 
 原生集成的调研结论——地址语法、会话推导、服务获取方式、HMR 行为以及「保留 / 委托」矩阵——记录在 [docs/native-integration.md](docs/native-integration.md)。
 

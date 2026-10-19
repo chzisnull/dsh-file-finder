@@ -23,7 +23,8 @@
   ],
   "scripts": {
     "test": "node --test test/search.test.mjs test/boot-safety.test.mjs test/ui-contract.test.mjs",
-    "preview": "node preview/screenshot.mjs"
+    "preview": "node preview/screenshot.mjs",
+    "check:bot": "node preview/bot-check.mjs"
   },
   "dsh": {
     "bundle": {

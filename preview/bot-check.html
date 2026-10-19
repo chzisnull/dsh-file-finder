@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <title>dsh-file-finder · DS Bot bridge check</title>
+  <script>
+    // Preview-only fixture. `?bot=on` pretends DS Bot's client module is part of
+    // this boot so the optional bridge turns on; `?bot=off` is an install
+    // without DS Bot. The page also builds DS Bot's real selectors
+    // (.bt-account / .bt-account-menu / .bt-return) with plain DOM so the bridge
+    // can be exercised end to end without DS Bot or DSH.
+    (function () {
+      var on = new URLSearchParams(location.search).get('bot') === 'on'
+      window.__BOT_FIXTURE_ON__ = on
+      if (on) {
+        window.__DSH_BOOT__ = {
+          graph: {
+            entries: [{ id: 'ds-bot', url: '/plugin-client/ds-bot/client.js', rev: 'fixture' }],
+            batches: [],
+          },
+        }
+      }
+    })()
+  </script>
+</head>
+<body>
+  <div id="fixture-root"></div>
+  <script src="./vendor/react.development.js"></script>
+  <script src="./vendor/react-dom.development.js"></script>
+  <script src="./loader-shim.js"></script>
+  <script src="../client.js"></script>
+  <script>
+    (function () {
+      'use strict'
+
+      var results = []
+      var errors = []
+      var shortcuts = []
+      var slots = []
+
+      function check(name, ok, detail) {
+        results.push({ name: name, ok: Boolean(ok), detail: detail === undefined ? null : String(detail) })
+      }
+
+      function installBotSurface(mode) {
+        Array.prototype.forEach.call(
+          document.querySelectorAll('.bt-account, .bt-return, .bt-account-menu'),
+          function (node) { node.remove() },
+        )
+        document.body.dataset.fakeSurface = mode
+        if (mode === 'bot') {
+          var trigger = document.createElement('button')
+          trigger.type = 'button'
+          trigger.className = 'bt-account'
+          trigger.setAttribute('aria-label', 'Account')
+          trigger.addEventListener('click', function () {
+            if (document.querySelector('.bt-account-menu')) return
+            var menu = document.createElement('div')
+            menu.className = 'bt-menu bt-account-menu'
+            menu.setAttribute('role', 'menu')
+            menu.innerHTML =
+              '<button type="button" role="menuitem"><span class="bt-menu-label">用量</span></button>' +
+              '<button type="button" role="menuitem"><span class="bt-menu-label">连接器</span></button>' +
+              '<button type="button" role="menuitem"><span class="bt-menu-label">Bot 设置</span></button>' +
+              '<button type="button" role="menuitem"><span class="bt-menu-label">切换经典 Agent 模式</span></button>'
+            var items = menu.querySelectorAll('[role="menuitem"]')
+            items[items.length - 1].addEventListener('click', function () {
+              menu.remove()
+              installBotSurface('agent')
+            })
+            document.body.append(menu)
+          })
+          document.body.append(trigger)
+          return
+        }
+        var back = document.createElement('button')
+        back.type = 'button'
+        back.className = 'bt-return'
+        back.setAttribute('aria-label', 'DS Bot')
+        back.addEventListener('click', function () { installBotSurface('bot') })
+        document.body.append(back)
+      }
+
+      function press() {
+        document.dispatchEvent(new KeyboardEvent('keydown', {
+          key: 'b', code: 'KeyB', shiftKey: true, metaKey: true, bubbles: true, cancelable: true,
+        }))
+      }
+
+      var moduleExports = window.__DFF_MODULE__
+      var ctx = {
+        effect: function (fn) {
+          try {
+            var off = fn()
+            return function () { try { if (typeof off === 'function') off() } catch (error) { /* fixture */ } }
+          } catch (error) {
+            errors.push(String(error && error.stack ? error.stack : error))
+            return function () {}
+          }
+        },
+        get: function () { return undefined },
+        inject: function (names, callback) {
+          callback({
+            effect: ctx.effect,
+            shortcuts: {
+              register: function (command) { shortcuts.push(command); return function () {} },
+            },
+          })
+        },
+        locale: { register: function () {}, bind: function () { return function (key) { return key } } },
+        slots: {
+          inject: function (name, callback) { callback() },
+          register: function (entry, component) { slots.push({ entry: entry, component: component }); return function () {} },
+        },
+      }
+
+      async function settingsCardPresent() {
+        var row = slots.filter(function (item) { return item.entry && item.entry.name === 'settings.section' })[0]
+        if (!row) return 'no-settings-slot'
+        var host = document.createElement('div')
+        document.body.append(host)
+        var root = window.ReactDOM.createRoot(host)
+        root.render(window.React.createElement(row.component, {}))
+        await new Promise(function (resolve) { setTimeout(resolve, 60) })
+        var found = Boolean(host.querySelector('[data-dff-bot]'))
+        root.unmount()
+        host.remove()
+        return found
+      }
+
+      async function run() {
+        var expectBot = window.__BOT_FIXTURE_ON__
+        check('apply() ran', moduleExports && typeof moduleExports.apply === 'function')
+        await moduleExports.apply(ctx)
+        check('no apply() errors', errors.length === 0, errors.join(' | '))
+
+        var ids = shortcuts.map(function (command) { return command.id })
+        check('bot command registration matches install', ids.indexOf('files.toggleBotMode') !== -1 === expectBot, ids.join(','))
+        check('file-finder commands always registered', ids.indexOf('files.searchName') !== -1 && ids.indexOf('files.searchContent') !== -1, ids.join(','))
+
+        installBotSurface('bot')
+        press()
+        await new Promise(function (resolve) { setTimeout(resolve, 30) })
+        check('shortcut is inert without DS Bot', (document.body.dataset.fakeSurface === 'agent') === expectBot, 'surface=' + document.body.dataset.fakeSurface)
+
+        if (expectBot) {
+          check('Bot -> classic Agent', document.body.dataset.fakeSurface === 'agent', 'surface=' + document.body.dataset.fakeSurface)
+          // The bridge collapses a second toggle inside 300ms (keydown + an
+          // assigned shortcut for one keystroke); wait past it.
+          await new Promise(function (resolve) { setTimeout(resolve, 350) })
+          press()
+          await new Promise(function (resolve) { setTimeout(resolve, 30) })
+          check('classic Agent -> Bot', document.body.dataset.fakeSurface === 'bot', 'surface=' + document.body.dataset.fakeSurface)
+        }
+
+        var card = await settingsCardPresent()
+        check('settings card matches install', card === expectBot || card === 'no-settings-slot', 'card=' + card)
+
+        window.__BOT_CHECK__ = {
+          bot: expectBot,
+          passed: results.every(function (item) { return item.ok }),
+          results: results,
+          shortcuts: ids,
+          errors: errors,
+        }
+      }
+
+      run().catch(function (error) {
+        window.__BOT_CHECK__ = { bot: window.__BOT_FIXTURE_ON__, passed: false, results: results, errors: [String(error && error.stack ? error.stack : error)] }
+      })
+    })()
+  </script>
+</body>
+</html>
