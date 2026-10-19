@@ -385,7 +385,11 @@ function registerRoutes(ctx) {
           return
         }
         const controller = new AbortController()
-        req.on('close', () => controller.abort())
+        // `req` closes as soon as its body is consumed, so only a response that
+        // ends before finishing means the caller really went away.
+        res.on('close', () => {
+          if (!res.writableEnded) controller.abort()
+        })
         try {
           const body = await readJson(req, name === 'write' ? 2_000_000 : 16_000)
           const action = name === 'write' ? 'save' : name

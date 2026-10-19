@@ -47,6 +47,12 @@ window.__ModuleLoader__.load({
         contentLimit: '内容结果上限',
         savedPrefs: '已保存',
         footer: '查找文件',
+        emptyHint: '换个关键词，或者切换上面的搜索方式。',
+        hintNavigate: '↑↓ 选择',
+        hintOpen: '↵ 打开',
+        hintClose: 'esc 关闭',
+        hintSave: '⌘/Ctrl+S 保存',
+        hintEditorBack: 'esc 返回搜索',
       },
       en: {
         title: 'File Finder',
@@ -89,6 +95,12 @@ window.__ModuleLoader__.load({
         contentLimit: 'Content result limit',
         savedPrefs: 'Saved',
         footer: 'Find files',
+        emptyHint: 'Try another keyword, or switch the search mode above.',
+        hintNavigate: '↑↓ select',
+        hintOpen: '↵ open',
+        hintClose: 'esc close',
+        hintSave: 'Cmd/Ctrl+S save',
+        hintEditorBack: 'esc back to search',
       },
     }
 
@@ -400,64 +412,98 @@ window.__ModuleLoader__.load({
         }
       }
 
-      return h('div', { className: 'dff-backdrop', onMouseDown: (event) => { if (event.target === event.currentTarget) closePanel() } },
-        h('style', null, css),
-        h('section', {
-          className: view === 'editor' ? 'dff-panel dff-panel-editor' : 'dff-panel',
-          role: 'dialog',
-          'aria-modal': 'true',
-          'aria-label': t('title'),
-        },
-        view === 'search' ? searchView() : editorView()))
+      return h('div', {
+        className: 'dff-backdrop',
+        onMouseDown: (event) => { if (event.target === event.currentTarget) closePanel() },
+      },
+      h('style', null, css),
+      h('section', {
+        className: view === 'editor' ? 'dff-panel dff-editor-panel' : 'dff-panel',
+        role: 'dialog',
+        'aria-modal': 'true',
+        'aria-label': t('title'),
+      }, view === 'search' ? searchView() : editorView()))
 
       function searchView() {
         return h(React.Fragment, null,
-          header(t('title'), closePanel),
-          h('div', { className: 'dff-modes' },
-            modeButton('name', t('name')),
-            modeButton('content', t('content'))),
-          roots.length > 1 ? h('label', { className: 'dff-root' },
-            t('root'),
-            h('select', {
-              value: root,
-              onChange: (event) => setRoot(event.target.value),
-            }, roots.map((item) => h('option', { key: item.path, value: item.path }, item.title || item.path)))) : null,
-          h('input', {
-            ref: inputRef,
-            className: 'dff-input',
-            value: query,
-            placeholder: mode === 'content' ? t('contentPlaceholder') : t('namePlaceholder'),
-            onChange: (event) => setQuery(event.target.value),
-            onKeyDown: onSearchKey,
-          }),
+          h('div', { className: 'dff-top' },
+            h('div', { className: 'dff-tabs', role: 'tablist' },
+              modeButton('name', t('name')),
+              modeButton('content', t('content'))),
+            h('div', { className: 'dff-top-right' },
+              roots.length > 1 ? h('select', {
+                className: 'dff-root',
+                value: root,
+                title: t('root'),
+                onChange: (event) => setRoot(event.target.value),
+              }, roots.map((item) => h('option', { key: item.path, value: item.path }, item.title || item.path))) : null,
+              h('button', { type: 'button', className: 'dff-close', 'aria-label': t('close'), onClick: closePanel }, '\u00d7'))),
+          h('div', { className: 'dff-box' },
+            h('span', { className: 'dff-glyph', 'aria-hidden': 'true' },
+              h('svg', { viewBox: '0 0 20 20', width: 16, height: 16 },
+                h('circle', { cx: 9, cy: 9, r: 5.6, fill: 'none', stroke: 'currentColor', strokeWidth: 1.6 }),
+                h('path', { d: 'M13.3 13.3 17 17', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round' }))),
+            h('input', {
+              ref: inputRef,
+              className: 'dff-input',
+              value: query,
+              placeholder: mode === 'content' ? t('contentPlaceholder') : t('namePlaceholder'),
+              onChange: (event) => setQuery(event.target.value),
+              onKeyDown: onSearchKey,
+              role: 'combobox',
+              'aria-expanded': true,
+              'aria-controls': 'dff-list',
+              'aria-autocomplete': 'list',
+            }),
+            flat.length ? h('span', { className: 'dff-count' }, String(flat.length)) : null),
           message(),
-          h('div', { className: 'dff-results', role: 'listbox' },
-            flat.length ? flat.map((item, index) => h('button', {
-              key: `${item.path}:${item.line}:${index}`,
-              type: 'button',
-              role: 'option',
-              'aria-selected': index === selected,
-              className: index === selected ? 'dff-result is-selected' : 'dff-result',
-              onMouseEnter: () => setSelected(index),
-              onClick: () => openFile(item),
-            },
-            h('span', { className: 'dff-result-name' }, item.name),
-            h('span', { className: 'dff-result-meta' }, mode === 'content' ? textOf(t, 'line', { line: item.line }) : parentOf(item.path)),
-            mode === 'content' ? h('span', { className: 'dff-result-preview' }, item.preview) : null))
-            : h('p', { className: 'dff-empty' }, busy ? t('searching') : root ? t('noResult') : t('noRoot'))))
+          h('div', { className: 'dff-list', id: 'dff-list', role: 'listbox' },
+            flat.length
+              ? flat.map((item, index) => resultRow(item, index))
+              : h('div', { className: 'dff-empty' },
+                h('strong', null, busy ? t('searching') : root ? t('noResult') : t('noRoot')),
+                !busy && root ? h('span', null, t('emptyHint')) : null)),
+          h('div', { className: 'dff-foot' },
+            h('span', { className: 'dff-hint' }, t('hintNavigate')),
+            h('span', { className: 'dff-hint' }, t('hintOpen')),
+            h('span', { className: 'dff-hint' }, t('hintClose')),
+            h('span', { className: 'dff-rootpath', title: root }, root)))
+      }
+
+      function resultRow(item, index) {
+        const needle = query.trim()
+        return h('button', {
+          key: item.path + ':' + item.line + ':' + index,
+          type: 'button',
+          role: 'option',
+          'aria-selected': index === selected,
+          className: index === selected ? 'dff-result is-selected' : 'dff-result',
+          onMouseEnter: () => setSelected(index),
+          onClick: () => openFile(item),
+        },
+        h('span', { className: 'dff-ext', 'aria-hidden': 'true' }, extOf(item.name)),
+        h('span', { className: 'dff-body' },
+          h('span', { className: 'dff-line1' },
+            h('span', { className: 'dff-name' }, mode === 'name' ? highlight(item.name, needle) : item.name),
+            mode === 'content' ? h('span', { className: 'dff-badge-line' }, String(item.line)) : null),
+          h('span', { className: 'dff-line2' },
+            mode === 'content' ? highlight(item.preview, needle) : parentOf(item.path))),
+        h('span', { className: 'dff-tip', 'aria-hidden': 'true' }, '\u21b5'))
       }
 
       function editorView() {
         return h(React.Fragment, null,
-          header(file ? file.path : t('title'), () => setView('search')),
-          h('div', { className: 'dff-editor-bar' },
-            h('span', { className: dirty ? 'dff-badge is-dirty' : 'dff-badge' }, dirty ? t('dirty') : status || t('saved')),
-            h('button', { type: 'button', onClick: () => setView('search') }, t('back')),
-            h('button', { type: 'button', onClick: reloadFile, disabled: busy }, t('reload')),
-            h('button', { type: 'button', className: 'dff-primary', onClick: saveFile, disabled: busy || !dirty }, busy ? t('saving') : t('save'))),
+          h('div', { className: 'dff-top' },
+            h('div', { className: 'dff-title', title: file ? file.path : '' }, file ? file.path : t('title')),
+            h('div', { className: 'dff-top-right' },
+              h('span', { className: dirty ? 'dff-pill is-dirty' : 'dff-pill' }, dirty ? t('dirty') : status || t('saved')),
+              h('button', { type: 'button', className: 'dff-ghost', onClick: () => setView('search') }, t('back')),
+              h('button', { type: 'button', className: 'dff-ghost', onClick: reloadFile, disabled: busy }, t('reload')),
+              h('button', { type: 'button', className: 'dff-save', onClick: saveFile, disabled: busy || !dirty }, busy ? t('saving') : t('save')),
+              h('button', { type: 'button', className: 'dff-close', 'aria-label': t('close'), onClick: closePanel }, '\u00d7'))),
           confirmClose ? h('div', { className: 'dff-confirm' },
             h('span', null, t('confirmClose')),
-            h('button', { type: 'button', onClick: () => setConfirmClose(false) }, t('keep')),
+            h('button', { type: 'button', className: 'dff-ghost', onClick: () => setConfirmClose(false) }, t('keep')),
             h('button', { type: 'button', className: 'dff-danger', onClick: () => store.close() }, t('discard'))) : null,
           message(),
           h('textarea', {
@@ -467,28 +513,54 @@ window.__ModuleLoader__.load({
             spellCheck: false,
             onChange: (event) => setDraft(event.target.value),
             onKeyDown: onEditorKey,
-          }))
-      }
-
-      function header(title, onClose) {
-        return h('div', { className: 'dff-header' },
-          h('strong', null, title),
-          h('button', { type: 'button', className: 'dff-icon', 'aria-label': t('close'), onClick: onClose }, '×'))
+          }),
+          h('div', { className: 'dff-foot' },
+            h('span', { className: 'dff-hint' }, t('hintSave')),
+            h('span', { className: 'dff-hint' }, t('hintEditorBack')),
+            h('span', { className: 'dff-rootpath', title: file ? file.path : '' }, file ? parentOf(file.path) : '')))
       }
 
       function modeButton(next, label) {
         return h('button', {
           type: 'button',
-          className: mode === next ? 'dff-mode is-selected' : 'dff-mode',
+          role: 'tab',
+          'aria-selected': mode === next,
+          className: mode === next ? 'dff-tab is-selected' : 'dff-tab',
           onClick: () => { setMode(next); setQuery(''); setResults([]); setError('') },
         }, label)
       }
 
       function message() {
-        return h(React.Fragment, null,
-          error ? h('p', { className: 'dff-error' }, error) : null,
-          truncated ? h('p', { className: 'dff-note' }, t('truncated')) : null)
+        if (!error && !truncated) return null
+        return h('p', { className: error ? 'dff-msg is-error' : 'dff-msg' }, error || t('truncated'))
       }
+    }
+
+    function extOf(name) {
+      const base = String(name || '')
+      const dot = base.lastIndexOf('.')
+      if (dot <= 0 || dot === base.length - 1) return '\u00b7'
+      return base.slice(dot + 1).slice(0, 3).toUpperCase()
+    }
+
+    function highlight(text, query) {
+      const value = String(text || '')
+      const needle = String(query || '').trim()
+      if (!needle) return value
+      const lower = value.toLowerCase()
+      const hit = needle.toLowerCase()
+      const parts = []
+      let from = 0
+      let at = lower.indexOf(hit)
+      let key = 0
+      while (at >= 0) {
+        if (at > from) parts.push(value.slice(from, at))
+        parts.push(h('mark', { key: 'm' + String(key++), className: 'dff-hit' }, value.slice(at, at + hit.length)))
+        from = at + hit.length
+        at = lower.indexOf(hit, from)
+      }
+      if (from < value.length) parts.push(value.slice(from))
+      return parts
     }
 
     function parentOf(filePath) {
@@ -569,35 +641,53 @@ window.__ModuleLoader__.load({
     }
 
     const css = `
-      .dff-backdrop { position: fixed; inset: 0; z-index: 40; display: flex; align-items: flex-start; justify-content: center; padding: 10vh 24px 24px; background: color-mix(in srgb, var(--dsw-alias-label-primary) 28%, transparent); }
-      .dff-panel { width: min(720px, 100%); max-height: min(70vh, 640px); display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--dsw-alias-border-l1); border-radius: 12px; background: var(--dsw-alias-bg-overlay); color: var(--dsw-alias-label-primary); box-shadow: 0 18px 48px color-mix(in srgb, var(--dsw-alias-label-primary) 18%, transparent); }
-      .dff-panel-editor { width: min(920px, 100%); height: min(78vh, 760px); max-height: min(78vh, 760px); }
-      .dff-header, .dff-editor-bar, .dff-confirm, .dff-settings { display: flex; align-items: center; gap: 8px; }
-      .dff-header { justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--dsw-alias-border-l1); }
-      .dff-header strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
-      .dff-modes, .dff-root, .dff-input, .dff-note, .dff-error { margin: 10px 14px 0; }
-      .dff-modes { display: flex; gap: 6px; }
-      .dff-mode, .dff-panel button, .dff-settings button, .dff-footer { border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); }
-      .dff-mode, .dff-panel button, .dff-settings button { padding: 6px 10px; font: inherit; cursor: pointer; }
-      .dff-mode.is-selected, .dff-primary { background: var(--dsw-alias-brand-primary); color: var(--dsw-alias-bg-base); border-color: transparent; }
-      .dff-icon { width: 28px; height: 28px; padding: 0; font-size: 18px; line-height: 1; }
-      .dff-root { display: flex; flex-direction: column; gap: 4px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
-      .dff-root select, .dff-input, .dff-editor { width: 100%; box-sizing: border-box; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); font: inherit; }
-      .dff-input, .dff-root select { padding: 8px 10px; }
-      .dff-results { overflow: auto; margin-top: 10px; padding: 0 8px 8px; }
-      .dff-result { display: grid; width: 100%; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; margin: 0; padding: 8px 10px; text-align: left; background: transparent; border-color: transparent; }
+      .dff-backdrop { position: fixed; inset: 0; z-index: 60; display: flex; align-items: flex-start; justify-content: center; padding: 10vh 24px 24px; background: color-mix(in srgb, var(--dsw-alias-label-primary) 18%, transparent); }
+      .dff-panel { display: flex; flex-direction: column; width: min(760px, 100%); max-height: min(62vh, 620px); overflow: hidden; border: 1px solid var(--dsw-alias-border-l1); border-radius: 12px; background: var(--dsw-alias-bg-overlay); color: var(--dsw-alias-label-primary); box-shadow: 0 24px 60px color-mix(in srgb, var(--dsw-alias-label-primary) 22%, transparent); }
+      .dff-editor-panel { width: min(960px, 100%); height: min(76vh, 720px); max-height: min(76vh, 720px); }
+      .dff-top { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--dsw-alias-border-l1); }
+      .dff-top-right { display: flex; align-items: center; gap: 8px; margin-left: auto; min-width: 0; }
+      .dff-tabs { display: flex; gap: 4px; padding: 3px; border-radius: 9px; background: var(--dsw-alias-bg-layer-2); }
+      .dff-tab { padding: 5px 10px; border: 0; border-radius: 7px; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 13px; cursor: pointer; }
+      .dff-tab.is-selected { background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); }
+      .dff-root { max-width: 220px; padding: 5px 8px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-secondary); font: inherit; font-size: 12px; }
+      .dff-close { width: 26px; height: 26px; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--dsw-alias-label-secondary); font-size: 16px; line-height: 1; cursor: pointer; }
+      .dff-close:hover { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
+      .dff-box { display: flex; align-items: center; gap: 8px; margin: 12px 12px 0; padding: 9px 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-alias-bg-layer-1); }
+      .dff-box:focus-within { border-color: var(--dsw-alias-brand-primary); }
+      .dff-glyph { display: flex; color: var(--dsw-alias-label-secondary); }
+      .dff-input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--dsw-alias-label-primary); font: inherit; font-size: 14px; }
+      .dff-count { color: var(--dsw-alias-label-secondary); font-size: 12px; font-variant-numeric: tabular-nums; }
+      .dff-msg { margin: 8px 14px 0; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+      .dff-msg.is-error { color: var(--dsw-alias-state-error-primary); }
+      .dff-list { flex: 1; overflow: auto; padding: 8px 6px; }
+      .dff-result { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; color: inherit; text-align: left; cursor: pointer; }
       .dff-result.is-selected { background: var(--dsw-alias-bg-layer-2); }
-      .dff-result-name, .dff-result-preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      .dff-result-name { grid-column: 1; font-size: 13px; }
-      .dff-result-meta, .dff-result-preview, .dff-empty, .dff-note { color: var(--dsw-alias-label-secondary); font-size: 12px; }
-      .dff-result-preview { grid-column: 1 / -1; }
-      .dff-empty { padding: 18px 8px; text-align: center; }
-      .dff-error { color: var(--dsw-alias-state-error-primary); font-size: 12px; }
-      .dff-editor-bar, .dff-confirm { padding: 8px 14px; border-bottom: 1px solid var(--dsw-alias-border-l1); }
-      .dff-badge { margin-right: auto; color: var(--dsw-alias-label-secondary); font-size: 12px; }
-      .dff-badge.is-dirty { color: var(--dsw-alias-state-warn-primary); }
-      .dff-danger { color: var(--dsw-alias-state-error-primary); }
-      .dff-editor { flex: 1; min-height: 240px; margin: 12px 14px 14px; padding: 12px; resize: none; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; line-height: 20px; }
+      .dff-ext { display: flex; flex: none; align-items: center; justify-content: center; width: 34px; height: 22px; border-radius: 6px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-secondary); font-size: 10px; letter-spacing: 0.04em; }
+      .dff-body { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }
+      .dff-line1 { display: flex; align-items: center; gap: 8px; min-width: 0; }
+      .dff-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+      .dff-badge-line { flex: none; padding: 0 6px; border-radius: 999px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-secondary); font-size: 10px; line-height: 16px; font-variant-numeric: tabular-nums; }
+      .dff-line2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+      .dff-hit { padding: 0 1px; border-radius: 3px; background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 32%, transparent); color: inherit; }
+      .dff-tip { flex: none; color: var(--dsw-alias-label-secondary); font-size: 12px; opacity: 0; }
+      .dff-result.is-selected .dff-tip { opacity: 0.7; }
+      .dff-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 36px 12px; color: var(--dsw-alias-label-secondary); font-size: 13px; text-align: center; }
+      .dff-empty strong { font-weight: 500; }
+      .dff-empty span { font-size: 12px; opacity: 0.8; }
+      .dff-foot { display: flex; align-items: center; gap: 14px; padding: 8px 14px; border-top: 1px solid var(--dsw-alias-border-l1); color: var(--dsw-alias-label-secondary); font-size: 11px; }
+      .dff-rootpath { max-width: 45%; margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+      .dff-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+      .dff-pill { flex: none; color: var(--dsw-alias-label-secondary); font-size: 11px; }
+      .dff-pill.is-dirty { color: var(--dsw-alias-state-warn-primary); }
+      .dff-ghost, .dff-save, .dff-danger { flex: none; border-radius: 8px; padding: 5px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+      .dff-ghost { border: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); }
+      .dff-save { border: 0; background: var(--dsw-alias-brand-primary); color: var(--dsw-alias-bg-base); }
+      .dff-danger { border: 1px solid var(--dsw-alias-state-error-primary); background: transparent; color: var(--dsw-alias-state-error-primary); }
+      .dff-ghost:disabled, .dff-save:disabled { cursor: default; opacity: 0.5; }
+      .dff-confirm { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--dsw-alias-border-l1); color: var(--dsw-alias-label-secondary); font-size: 12px; }
+      .dff-confirm span { margin-right: auto; }
+      .dff-editor { flex: 1; margin: 12px; padding: 12px; border: 1px solid var(--dsw-alias-border-l1); border-radius: 10px; outline: 0; resize: none; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; line-height: 20px; }
+      .dff-editor:focus { border-color: var(--dsw-alias-brand-primary); }
       .dff-page { display: flex; flex-direction: column; gap: 18px; max-width: 640px; color: var(--dsw-alias-label-primary); }
       .dff-page-title { margin: 0; font-size: 20px; font-weight: 600; }
       .dff-page-lead, .dff-page-hint, .dff-page small { color: var(--dsw-alias-label-secondary); }
@@ -612,7 +702,6 @@ window.__ModuleLoader__.load({
       .dff-page input[type="text"], .dff-page input:not([type]), .dff-page input[type="number"] { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); font: inherit; }
       .dff-page button { padding: 6px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); font: inherit; cursor: pointer; }
       .dff-page input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--dsw-alias-brand-primary); }
-      .dff-panel button:disabled { cursor: default; opacity: 0.55; }
     `
 
     return {
