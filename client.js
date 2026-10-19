@@ -165,8 +165,17 @@ window.__ModuleLoader__.load({
       return t(key).replace(/\{(\w+)\}/g, (_, name) => String(values[name] ?? ''))
     }
 
+    function serviceOf(ctx, name) {
+      if (!ctx) return undefined
+      try {
+        if (typeof ctx.get === 'function') return ctx.get(name)
+      } catch { /* optional service */ }
+      return ctx[name]
+    }
+
     function currentCwd(ctx) {
-      const list = ctx.sessions && ctx.sessions.list && ctx.sessions.list.getSnapshot && ctx.sessions.list.getSnapshot()
+      const sessions = serviceOf(ctx, 'sessions')
+      const list = sessions && sessions.list && sessions.list.getSnapshot && sessions.list.getSnapshot()
       if (!list || !list.byId) return ''
       const current = Object.values(list.byId).find((row) => row && row.retainedBy && Number(row.retainedBy.mainView || 0) > 0)
       return current && typeof current.cwd === 'string' ? current.cwd : ''
@@ -705,8 +714,16 @@ window.__ModuleLoader__.load({
     `
 
     return {
-      inject: ['slots', 'locale', 'sessions'],
+      // Only services every Web shell always provides: a missing optional one
+      // must never hold up (or take down) the rest of the boot.
+      inject: ['slots', 'locale'],
       apply(ctx) {
+        try {
+          start(ctx)
+        } catch (error) {
+          console.error('dsh-file-finder could not start; the panel stays closed', error)
+        }
+        function start(ctx) {
         ctx.effect(() => ctx.locale.register('fileFinder', dict))
         const t = ctx.locale.bind('fileFinder')
         if (typeof ctx.inject === 'function') {
@@ -751,6 +768,7 @@ window.__ModuleLoader__.load({
         ctx.slots.inject('settings.section', () => ctx.slots.register({
           name: 'settings.section', id: 'file-finder', order: 18, label: () => t('settingsTitle'),
         }, Settings))
+        }
       },
     }
   },

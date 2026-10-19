@@ -443,17 +443,15 @@ function registerTool(ctx) {
 }
 
 export function apply(ctx) {
-  registerRoutes(ctx)
-  registerTool(ctx)
-  if (typeof ctx.inject === 'function') {
-    ctx.inject(['settings'], (scoped) => {
-      scoped.effect(() => {
-        try {
-          return scoped.settings.configure({ auto: false }, scoped.fiber)
-        } catch {
-          return () => {}
-        }
-      })
-    })
+  // A failure here must cost only this plugin's routes and tool, never the host boot.
+  try {
+    registerRoutes(ctx)
+  } catch (error) {
+    console.error('dsh-file-finder: routes were not registered', error)
+  }
+  try {
+    registerTool(ctx)
+  } catch (error) {
+    console.error('dsh-file-finder: tool was not registered', error)
   }
 }
