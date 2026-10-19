@@ -70,6 +70,14 @@ DS Bot 的模式切换是它自己的私有状态，没有对外暴露客户端�
 
 ## 安装
 
+插件已发布到 npm（包名 **`dsh-file-finder`**），在 **设置 → 插件 → 添加插件** 里直接输入包名即可：
+
+```sh
+dsh plugin add dsh-file-finder
+```
+
+也可以从本地目录安装：
+
 ```sh
 dsh plugin add /Library/aiProject/dsh-file-finder
 ```

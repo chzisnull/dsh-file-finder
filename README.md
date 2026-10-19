@@ -69,13 +69,19 @@ The editor shows a line-number gutter and highlights the caret's line. **Cmd/Ctr
 
 ## Install
 
-From this directory, after the plugin is on disk:
+The plugin is published to npm as **`dsh-file-finder`**, so **Settings → Plugins → Add plugin** resolves the package name directly:
+
+```sh
+dsh plugin add dsh-file-finder
+```
+
+Or install from this checkout:
 
 ```sh
 dsh plugin add /Library/aiProject/dsh-file-finder
 ```
 
-Or install the GitHub archive once it has been pushed. Restart or refresh the DSH page if the new client module does not appear immediately.
+Restart or refresh the DSH page if the new client module does not appear immediately.
 
 The same operations are available to the agent as the `file_finder` tool.
 
