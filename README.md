@@ -12,6 +12,7 @@ A DeepSeek Harness plugin for finding workspace files without leaving DSH: searc
 - **Edit in place** when you need to: ⌘/Ctrl+Enter opens the built-in editor, which saves through DSH's workspace filesystem and refuses to overwrite a file that changed after it was loaded.
 - **Native shortcuts**: Cmd/Ctrl+P and Cmd/Ctrl+Shift+F, like VS Code, without claiming a default binding in DSH's shortcut registry.
 - **Optional DS Bot bridge**: when the DS Bot plugin is installed, Cmd/Ctrl+Shift+B flips between Bot mode and classic Agent mode; without it neither the shortcut nor its settings card exists.
+- **Preview, not just text**: images, video, audio, PDFs, HTML pages and Markdown open in the built-in viewer; HTML runs in a sandbox, Markdown is rendered with DSH's own renderer, and relative images inside a Markdown file resolve to the workspace.
 - **A redesigned settings page** with cards, keycaps, steppers, and switches, plus an "Opening" preference that chooses whether Enter previews or edits.
 - **Polished interaction**: a frosted command palette, spring-eased mode switch, selected-row rail, loading skeletons, and reduced-motion support.
 
@@ -65,6 +66,8 @@ Without DS Bot nothing is registered or shown: the command never reaches **Setti
 
 Choose a result and press Cmd/Ctrl+Enter (or set the built-in editor as the default action). Save writes the full text back through the workspace filesystem and refuses to overwrite a file that changed after it was loaded. Reload, then save again, to take the newer version. The editor is for UTF-8 text under about 1 MB. Binary files and common build or dependency directories are skipped.
 
+Files that are not text open in the built-in viewer instead: images, video and audio render inline (byte ranges, so video seeking works), PDFs open in the platform frame, HTML pages run in a sandboxed iframe whose scripts cannot reach DSH, and Markdown is rendered with DSH's Markdown renderer, with an **Edit source** button that hands the file to the text editor.
+
 The editor shows a line-number gutter and highlights the caret's line. **Cmd/Ctrl+F** opens in-file search: every match is highlighted, the current one more strongly, with a match count, previous/next buttons, and a **Aa** case-sensitivity toggle. Enter and Shift+Enter step through matches, Escape closes the search and returns focus to the text.
 
 ## Install
@@ -95,10 +98,11 @@ npm test
 
 `npm test` covers the search helpers, the shortcut-default regression guard, and the UI contract (native preview address, palette hooks, reduced-motion rules, the DS Bot bridge, and the editor's line gutter plus in-file find).
 
-The editor has its own browser check for the gutter and in-file find:
+The editor has its own browser check for the gutter and in-file find, and the viewer has one for every preview kind:
 
 ```sh
 npm run check:find
+npm run check:viewer
 ```
 
 The DS Bot bridge also has a browser check that runs the real key handler against DS Bot's real selectors, with and without `ds-bot` in the boot graph:

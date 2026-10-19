@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { contentHits, rankName } from '../index.js'
+import { contentHits, fileKindOf, rankName } from '../index.js'
 
 test('rankName prefers an exact filename over a prefix or a path fragment', () => {
   assert.equal(rankName('App.ts', 'src/App.ts').score, 0)
@@ -17,4 +17,15 @@ test('contentHits is case-insensitive and 1-based', () => {
   assert.deepEqual(hits.map((hit) => hit.line), [2, 3])
   assert.equal(contentHits('nothing', 'hello', 5).length, 0)
   assert.equal(contentHits('hello\nhello', 'hello', 1).length, 1)
+})
+
+test('fileKindOf routes each preview kind and treats everything else as text', () => {
+  assert.equal(fileKindOf('assets/logo.png'), 'image')
+  assert.equal(fileKindOf('clip.MP4'), 'video')
+  assert.equal(fileKindOf('voice.m4a'), 'audio')
+  assert.equal(fileKindOf('manual.pdf'), 'pdf')
+  assert.equal(fileKindOf('README.md'), 'markdown')
+  assert.equal(fileKindOf('page.html'), 'html')
+  assert.equal(fileKindOf('src/app.ts'), 'text')
+  assert.equal(fileKindOf('Makefile'), 'text')
 })

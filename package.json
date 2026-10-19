@@ -1,7 +1,7 @@
 {
   "name": "dsh-file-finder",
-  "version": "0.3.0",
-  "description": "File search palette for DSH: find workspace files by name or content, open them in DSH's native preview, and edit text files when needed.",
+  "version": "0.4.0",
+  "description": "File finder for DSH: search by name or content, preview images, video, audio, PDF, HTML and Markdown, and edit text files with line numbers and in-file find.",
   "license": "MIT",
   "type": "module",
   "icon": "./icon.svg",
@@ -34,10 +34,11 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test test/search.test.mjs test/boot-safety.test.mjs test/ui-contract.test.mjs",
+    "test": "node --test test/search.test.mjs test/raw-route.test.mjs test/boot-safety.test.mjs test/ui-contract.test.mjs",
     "preview": "node preview/screenshot.mjs",
     "check:bot": "node preview/bot-check.mjs",
-    "check:find": "node preview/find-check.mjs"
+    "check:find": "node preview/find-check.mjs",
+    "check:viewer": "node preview/viewer-check.mjs"
   },
   "dsh": {
     "bundle": {

@@ -31,6 +31,52 @@ const BINARY_EXT = new Set([
   'ipa', 'apk', 'aar',
 ])
 
+// ── Previewable kinds ──────────────────────────────────────────────────────
+// The built-in viewer renders these without turning them into text; anything
+// else goes through the text editor (and falls back to a binary notice when the
+// bytes are not decodable).
+const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp', 'ico', 'svg'])
+const VIDEO_EXT = new Set(['mp4', 'webm', 'mov', 'm4v', 'ogv', 'mkv'])
+const AUDIO_EXT = new Set(['mp3', 'wav', 'ogg', 'oga', 'm4a', 'flac', 'aac', 'opus'])
+const MARKDOWN_EXT = new Set(['md', 'markdown', 'mdown', 'mdx'])
+const HTML_EXT = new Set(['html', 'htm'])
+const PDF_EXT = new Set(['pdf'])
+
+const MIME_TYPES = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+  webp: 'image/webp', avif: 'image/avif', bmp: 'image/bmp', ico: 'image/x-icon',
+  svg: 'image/svg+xml',
+  mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', m4v: 'video/x-m4v',
+  ogv: 'video/ogg', mkv: 'video/x-matroska',
+  mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', oga: 'audio/ogg',
+  m4a: 'audio/mp4', flac: 'audio/flac', aac: 'audio/aac', opus: 'audio/ogg',
+  pdf: 'application/pdf',
+  html: 'text/html; charset=utf-8', htm: 'text/html; charset=utf-8',
+  css: 'text/css; charset=utf-8', js: 'text/javascript; charset=utf-8',
+  mjs: 'text/javascript; charset=utf-8', cjs: 'text/javascript; charset=utf-8',
+  json: 'application/json; charset=utf-8', map: 'application/json; charset=utf-8',
+  txt: 'text/plain; charset=utf-8', md: 'text/markdown; charset=utf-8',
+  xml: 'application/xml; charset=utf-8', wasm: 'application/wasm',
+  woff: 'font/woff', woff2: 'font/woff2', ttf: 'font/ttf', otf: 'font/otf',
+  yml: 'text/yaml; charset=utf-8', yaml: 'text/yaml; charset=utf-8',
+}
+
+/** Which built-in viewer should open a path. */
+export function fileKindOf(name) {
+  const extension = extensionOf(name)
+  if (IMAGE_EXT.has(extension)) return 'image'
+  if (VIDEO_EXT.has(extension)) return 'video'
+  if (AUDIO_EXT.has(extension)) return 'audio'
+  if (PDF_EXT.has(extension)) return 'pdf'
+  if (MARKDOWN_EXT.has(extension)) return 'markdown'
+  if (HTML_EXT.has(extension)) return 'html'
+  return 'text'
+}
+
+function mimeOf(name) {
+  return MIME_TYPES[extensionOf(name)] || 'application/octet-stream'
+}
+
 function fold(value, caseSensitive) {
   const text = String(value || '')
   return caseSensitive ? text : text.toLowerCase()
@@ -310,27 +356,166 @@ async function searchContent(ctx, rootPath, query, signal, options) {
 async function readFile(ctx, rootPath, filePath, signal) {
   const { target } = await resolveInside(ctx, rootPath, filePath)
   const info = await ctx.fs.stat(target, signal)
-  if (!info || info.type !== 'file') throw Object.assign(new Error('不是可编辑的文件'), { code: 'not-text' })
+  if (!info || info.type !== 'file') throw Object.assign(new Error('不是可预览的文件'), { code: 'not-text' })
+  const path = visiblePath(ctx, target)
+  const name = path.split('/').pop() || path
+  const kind = fileKindOf(name)
+  const base = {
+    ok: true,
+    path,
+    version: String(info.version),
+    bytes: info.size,
+    kind,
+  }
+  // Media and PDFs are served by the raw route; the client never needs their bytes.
+  if (kind !== 'text') {
+    if ((kind === 'markdown' || kind === 'html')
+      && (typeof info.size !== 'number' || info.size <= READ_BYTE_CAP)) {
+      try {
+        const text = await ctx.fs.readText(target, signal)
+        if (text.length <= WRITE_CHAR_CAP) return { ...base, text }
+      } catch { /* a metadata-only preview is still useful */ }
+    }
+    return base
+  }
   if (typeof info.size === 'number' && info.size > READ_BYTE_CAP) {
     throw Object.assign(new Error('文件过大，不能在这里编辑'), { code: 'too-large' })
   }
-  const text = await ctx.fs.readText(target, signal)
+  let text
+  try {
+    text = await ctx.fs.readText(target, signal)
+  } catch {
+    // A text extension with binary bytes: preview it as an opaque file instead
+    // of failing the whole open.
+    return { ...base, kind: 'binary' }
+  }
   if (text.length > WRITE_CHAR_CAP) {
     throw Object.assign(new Error('文件过大，不能在这里编辑'), { code: 'too-large' })
   }
-  return {
-    ok: true,
-    path: visiblePath(ctx, target),
-    text,
-    version: String(info.version),
-    bytes: info.size,
+  return { ...base, text }
+}
+
+// ── Raw bytes for the built-in viewer ──────────────────────────────────────
+// One prefix route per file, so relative URLs inside a previewed HTML page
+// resolve here too. Ranges are capped per response; the browser asks for the
+// next window, which is what makes video seeking work without buffering the
+// whole file in the host.
+const RAW_CHUNK_BYTES = 8 * 1024 * 1024
+const RAW_FULL_CAP = 64 * 1024 * 1024
+
+export function parseRange(value, size) {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(String(value || '').replace(/\s+/g, ''))
+  if (!match) return null
+  const rawStart = match[1]
+  const rawEnd = match[2]
+  if (rawStart === '' && rawEnd === '') return null
+  let start
+  let end
+  if (rawStart === '') {
+    const suffix = Number(rawEnd)
+    if (!Number.isFinite(suffix) || suffix <= 0) return 'invalid'
+    start = Math.max(0, size - suffix)
+    end = size - 1
+  } else {
+    start = Number(rawStart)
+    end = rawEnd === '' ? size - 1 : Math.min(Number(rawEnd), size - 1)
   }
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= size) return 'invalid'
+  return { start, end }
+}
+
+export async function serveRaw(ctx, req, res, signal) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    res.statusCode = 405
+    res.setHeader('content-type', 'text/plain; charset=utf-8')
+    res.end('只接受 GET')
+    return
+  }
+  const prefix = '/dsh-file-finder/ws/'
+  const url = new URL(req.url || '/', 'http://dsh-file-finder.invalid')
+  const rest = url.pathname.startsWith(prefix) ? url.pathname.slice(prefix.length) : ''
+  const slash = rest.indexOf('/')
+  if (slash <= 0 || slash === rest.length - 1) {
+    res.statusCode = 400
+    res.setHeader('content-type', 'text/plain; charset=utf-8')
+    res.end('缺少路径')
+    return
+  }
+  let rootPath = ''
+  let relative = ''
+  try {
+    rootPath = Buffer.from(decodeURIComponent(rest.slice(0, slash)), 'base64url').toString('utf8')
+    relative = rest.slice(slash + 1).split('/').map((segment) => decodeURIComponent(segment)).join('/')
+  } catch {
+    rootPath = ''
+  }
+  if (!rootPath || !relative) {
+    res.statusCode = 400
+    res.setHeader('content-type', 'text/plain; charset=utf-8')
+    res.end('缺少路径')
+    return
+  }
+  const targetPath = rootPath.replace(/\/+$/, '') + '/' + relative
+  const { target } = await resolveInside(ctx, rootPath, targetPath)
+  const info = await ctx.fs.stat(target, signal)
+  if (!info || info.type !== 'file') {
+    res.statusCode = 404
+    res.setHeader('content-type', 'text/plain; charset=utf-8')
+    res.end('没有这个文件')
+    return
+  }
+  const displayPath = visiblePath(ctx, target)
+  const size = Number(info.size) || 0
+  res.setHeader('content-type', mimeOf(displayPath))
+  res.setHeader('accept-ranges', 'bytes')
+  res.setHeader('cache-control', 'no-store')
+  res.setHeader('x-content-type-options', 'nosniff')
+  const range = parseRange(req.headers.range, size)
+  if (range === 'invalid') {
+    res.statusCode = 416
+    res.setHeader('content-range', `bytes */${size}`)
+    res.end()
+    return
+  }
+  if (range) {
+    const start = range.start
+    const end = Math.min(range.end, range.start + RAW_CHUNK_BYTES - 1)
+    const buffer = await ctx.fs.readByteRange(target, { offset: start, length: end - start + 1 }, signal)
+    res.statusCode = 206
+    res.setHeader('content-range', `bytes ${start}-${end}/${size}`)
+    res.setHeader('content-length', String(buffer.length))
+    if (req.method === 'HEAD') {
+      res.end()
+      return
+    }
+    res.end(buffer)
+    return
+  }
+  if (size > RAW_FULL_CAP) {
+    res.statusCode = 413
+    res.setHeader('content-type', 'text/plain; charset=utf-8')
+    res.end('文件过大，请改用 DSH 右侧栏预览或系统应用打开')
+    return
+  }
+  const buffer = await ctx.fs.readBytes(target, signal, RAW_FULL_CAP)
+  res.statusCode = 200
+  res.setHeader('content-length', String(buffer.length))
+  if (req.method === 'HEAD') {
+    res.end()
+    return
+  }
+  res.end(buffer)
 }
 
 async function saveFile(ctx, rootPath, filePath, content, version, signal) {
   if (typeof content !== 'string') throw new Error('缺少文件内容')
   if (content.length > WRITE_CHAR_CAP) throw Object.assign(new Error('内容过大，不能保存'), { code: 'too-large' })
   const { target } = await resolveInside(ctx, rootPath, filePath)
+  const displayPath = visiblePath(ctx, target)
+  const kind = fileKindOf(displayPath.split('/').pop() || displayPath)
+  if (kind !== 'text' && kind !== 'markdown' && kind !== 'html') {
+    throw Object.assign(new Error('这个文件类型不能在面板里编辑'), { code: 'not-text' })
+  }
   const info = await ctx.fs.stat(target, signal)
   if (!info || info.type !== 'file') throw Object.assign(new Error('不是可编辑的文件'), { code: 'not-text' })
   if (version && String(info.version) !== String(version)) {
@@ -401,6 +586,35 @@ function registerRoutes(ctx) {
       },
     }), `dsh-file-finder: /dsh-file-finder/${name}`)
   }
+  // The built-in viewer's read-only byte route: images, video, audio, PDFs and
+  // HTML previews (plus the assets a previewed page asks for).
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'prefix',
+    // Prefix routes match `${path}/…`: keep this without the trailing slash.
+    path: '/dsh-file-finder/ws',
+    handler: async (req, res) => {
+      const connection = ctx.get('connection')
+      const rejected = rejectionStatus(connection, req)
+      if (rejected !== undefined) {
+        res.statusCode = rejected
+        res.end()
+        return
+      }
+      const controller = new AbortController()
+      res.on('close', () => {
+        if (!res.writableEnded) controller.abort()
+      })
+      try {
+        await serveRaw(ctx, req, res, controller.signal)
+      } catch (error) {
+        if (!res.writableEnded) {
+          res.statusCode = error && error.code === 'FS_TOO_LARGE' ? 413 : 404
+          res.setHeader('content-type', 'text/plain; charset=utf-8')
+          res.end(errorText(error))
+        }
+      }
+    },
+  }), 'dsh-file-finder: raw files')
 }
 
 function registerTool(ctx) {

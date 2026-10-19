@@ -109,3 +109,15 @@ test('the built-in editor finds inside the file', () => {
   assert.match(source, /function onFindKey\(event\)/)
   assert.match(source, /function moveFind\(delta\)/)
 })
+
+test('the built-in viewer renders media, documents and HTML', () => {
+  assert.match(source, /function previewKindOf\(name\)/)
+  assert.match(source, /function rawUrlFor\(rootPath, filePath\)/)
+  assert.match(source, /'data-dff-viewer': 'image'/)
+  assert.match(source, /'data-dff-viewer': 'video'/)
+  assert.match(source, /'data-dff-viewer': 'pdf'/)
+  assert.match(source, /sandbox: 'allow-scripts'/)
+  assert.match(source, /MarkdownText/)
+  assert.match(source, /rewriteMarkdownAssets/)
+  assert.match(source, /function viewerView\(\)/)
+})

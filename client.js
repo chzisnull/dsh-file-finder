@@ -18,6 +18,11 @@ window.__ModuleLoader__.load({
     const FileTypeIcon = primitives && typeof primitives.FileTypeIcon === 'function'
       ? primitives.FileTypeIcon
       : null
+    // DSH's own Markdown renderer, when the shell provides primitives. The
+    // viewer falls back to plain text in harnesses without them.
+    const MarkdownText = primitives && typeof primitives.MarkdownText === 'function'
+      ? primitives.MarkdownText
+      : null
 
     const dict = {
       zh: {
@@ -109,6 +114,19 @@ window.__ModuleLoader__.load({
         findClose: '关闭查找',
         findNoResult: '无结果',
         hintFind: '查找',
+        readOnly: '只读预览',
+        unpreviewable: '无法预览此类型',
+        editText: '编辑源码',
+        previewUnsupported: '这种文件暂时不能在面板里预览',
+        previewUnsupportedHint: '可以用右侧栏预览，或先把这个文件导出到别处再用系统程序打开。',
+        previewHtmlNote: 'HTML 在沙箱中运行，脚本无法访问 DSH 页面。',
+        kindImage: '图片',
+        kindVideo: '视频',
+        kindAudio: '音频',
+        kindPdf: 'PDF',
+        kindMarkdown: 'Markdown',
+        kindHtml: 'HTML',
+        kindBinary: '二进制文件',
       },
       en: {
         title: 'File Finder',
@@ -199,6 +217,19 @@ window.__ModuleLoader__.load({
         findClose: 'Close search',
         findNoResult: 'No results',
         hintFind: 'find',
+        readOnly: 'Read-only preview',
+        unpreviewable: 'No preview for this type',
+        editText: 'Edit source',
+        previewUnsupported: 'This file type cannot be previewed here yet',
+        previewUnsupportedHint: 'Open it in the right-sidebar preview, or export the file and use a system app.',
+        previewHtmlNote: 'HTML runs sandboxed; its scripts cannot reach the DSH page.',
+        kindImage: 'Image',
+        kindVideo: 'Video',
+        kindAudio: 'Audio',
+        kindPdf: 'PDF',
+        kindMarkdown: 'Markdown',
+        kindHtml: 'HTML',
+        kindBinary: 'Binary file',
       },
     }
 
@@ -477,6 +508,77 @@ window.__ModuleLoader__.load({
       const dot = base.lastIndexOf('.')
       if (dot <= 0 || dot === base.length - 1) return ''
       return base.slice(dot + 1).toLowerCase()
+    }
+
+    // ── Built-in viewer kinds ──────────────────────────────────────────────
+    // Extension-driven, mirroring the host's fileKindOf. Media and documents
+    // open in the viewer; everything else goes through the text editor.
+    const KIND_IMAGE = /^(png|jpe?g|gif|webp|avif|bmp|ico|svg)$/
+    const KIND_VIDEO = /^(mp4|webm|mov|m4v|ogv|mkv)$/
+    const KIND_AUDIO = /^(mp3|wav|ogg|oga|m4a|flac|aac|opus)$/
+    const KIND_MARKDOWN = /^(md|markdown|mdown|mdx)$/
+    const KIND_HTML = /^(html|htm)$/
+    const KIND_PDF = /^(pdf)$/
+
+    function previewKindOf(name) {
+      const extension = extOf(name)
+      if (KIND_IMAGE.test(extension)) return 'image'
+      if (KIND_VIDEO.test(extension)) return 'video'
+      if (KIND_AUDIO.test(extension)) return 'audio'
+      if (KIND_PDF.test(extension)) return 'pdf'
+      if (KIND_MARKDOWN.test(extension)) return 'markdown'
+      if (KIND_HTML.test(extension)) return 'html'
+      return 'text'
+    }
+
+    function base64Url(value) {
+      const bytes = new TextEncoder().encode(String(value))
+      let binary = ''
+      for (const byte of bytes) binary += String.fromCharCode(byte)
+      return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+    }
+
+    function rawUrlFor(rootPath, filePath) {
+      const relative = relativePath(rootPath, filePath)
+      if (!relative) return ''
+      return '/dsh-file-finder/ws/' + base64Url(rootPath) + '/'
+        + relative.split('/').map(encodeURIComponent).join('/')
+    }
+
+    function normalizeRelative(baseDir, target) {
+      const value = String(target || '')
+      if (!value || /^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(value)) return ''
+      const stack = String(baseDir || '').split('/').filter(Boolean)
+      for (const part of value.split('/')) {
+        if (!part || part === '.') continue
+        if (part === '..') stack.pop()
+        else stack.push(part)
+      }
+      return stack.join('/')
+    }
+
+    // Markdown images and <img> tags with relative sources are pointed at the raw
+    // route, so a README's screenshots show up inside the panel.
+    function rewriteMarkdownAssets(text, rootPath, filePath) {
+      const baseDir = dirOf(relativePath(rootPath, filePath))
+      const token = base64Url(rootPath)
+      const toUrl = (target) => {
+        const resolved = normalizeRelative(baseDir, target)
+        if (!resolved) return ''
+        const path = '/dsh-file-finder/ws/' + token + '/' + resolved.split('/').map(encodeURIComponent).join('/')
+        // DSH's Markdown renderer only draws http(s) sources; a same-origin
+        // absolute URL passes that check and still hits our route.
+        try { return new URL(path, location.href).href } catch { return path }
+      }
+      return String(text || '')
+        .replace(/(!\[[^\]]*\]\()([^)\s]+)(\))/g, (whole, head, target, tail) => {
+          const url = toUrl(target)
+          return url ? head + url + tail : whole
+        })
+        .replace(/(<img\b[^>]*\bsrc=["'])([^"']+)(["'])/gi, (whole, head, target, tail) => {
+          const url = toUrl(target)
+          return url ? head + url + tail : whole
+        })
     }
 
     function fileAccent(name) {
@@ -1157,8 +1259,19 @@ window.__ModuleLoader__.load({
         setFindIndex(0)
         try {
           const data = await post('/dsh-file-finder/read', { root, path: item.path })
-          setFile({ path: data.path, version: data.version, text: data.text, bytes: data.bytes, line: item.line || 1 })
-          setDraft(data.text)
+          const text = typeof data.text === 'string' ? data.text : ''
+          // The host decides the kind from the extension and decodability; media
+          // and PDFs arrive without text and are rendered by the viewer.
+          const kind = typeof data.kind === 'string' && data.kind ? data.kind : previewKindOf(item.path)
+          setFile({
+            path: data.path,
+            version: data.version,
+            text,
+            bytes: data.bytes,
+            line: item.line || 1,
+            kind,
+          })
+          setDraft(text)
           setView('editor')
         } catch (reason) {
           setError(reason instanceof Error ? reason.message : String(reason))
@@ -1169,6 +1282,12 @@ window.__ModuleLoader__.load({
 
       async function openPrimary(item) {
         if (busy) return
+        // Media and documents have nothing to edit here, so they always open in
+        // the built-in viewer instead of the sidebar/native split.
+        if (previewKindOf(item.path) !== 'text') {
+          await openEditor(item)
+          return
+        }
         if (prefsState.openMode === 'preview') {
           if (openNative(item)) {
             store.close()
@@ -1181,6 +1300,10 @@ window.__ModuleLoader__.load({
 
       async function openSecondary(item) {
         if (busy) return
+        if (previewKindOf(item.path) !== 'text') {
+          await openEditor(item)
+          return
+        }
         if (prefsState.openMode === 'preview') {
           setNotice('')
           await openEditor(item)
@@ -1252,7 +1375,7 @@ window.__ModuleLoader__.load({
       }
 
       function onPanelKey(event) {
-        if (view === 'editor' && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f') {
+        if (view === 'editor' && file && file.kind === 'text' && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f') {
           event.preventDefault()
           event.stopPropagation()
           openFind()
@@ -1562,6 +1685,115 @@ window.__ModuleLoader__.load({
             h('span', { className: 'dff-rootpath', title: root }, h(FolderIcon, { size: 12 }), h('span', { className: 'dff-rootpath-text' }, h('bdi', null, root)))))
       }
 
+
+      // ── Built-in viewer ──────────────────────────────────────────────────
+      function switchToEditor() {
+        if (!file || typeof file.text !== 'string' || !file.text) return
+        setFile({ ...file, kind: 'text' })
+        setDraft(file.text)
+        setFindOpen(false)
+        setFindQuery('')
+        setFindIndex(0)
+      }
+
+      // Links inside a rendered Markdown file: keep external ones to the browser
+      // and route workspace-relative ones back through the viewer.
+      function onMarkdownClick(event) {
+        const anchor = event.target && typeof event.target.closest === 'function'
+          ? event.target.closest('a')
+          : null
+        if (!anchor || !file) return
+        const href = anchor.getAttribute('href') || ''
+        if (/^(?:https?:|mailto:)/i.test(href)) return
+        event.preventDefault()
+        const relative = normalizeRelative(dirOf(relativePath(root, file.path)), href)
+        if (!relative) return
+        openEditor({ path: root.replace(/\/+$/, '') + '/' + relative, line: 1 })
+      }
+
+      function viewerBody(kind) {
+        const name = file ? baseName(file.path) : ''
+        const src = file ? rawUrlFor(root, file.path) : ''
+        if (kind === 'image') {
+          return h('div', { className: 'dff-media', 'data-dff-viewer': 'image' },
+            h('img', { className: 'dff-media-image', src, alt: name, draggable: false }))
+        }
+        if (kind === 'video') {
+          return h('div', { className: 'dff-media is-dark', 'data-dff-viewer': 'video' },
+            h('video', { className: 'dff-media-video', src, controls: true, preload: 'metadata', playsInline: true }))
+        }
+        if (kind === 'audio') {
+          return h('div', { className: 'dff-media dff-media-audio', 'data-dff-viewer': 'audio' },
+            h('audio', { src, controls: true, preload: 'metadata' }))
+        }
+        if (kind === 'pdf') {
+          return h('iframe', { className: 'dff-frame', src, title: name, 'data-dff-viewer': 'pdf' })
+        }
+        if (kind === 'html') {
+          return h('div', { className: 'dff-frame-wrap', 'data-dff-viewer': 'html' },
+            h('iframe', {
+              className: 'dff-frame',
+              src,
+              title: name,
+              sandbox: 'allow-scripts',
+              referrerPolicy: 'no-referrer',
+            }),
+            h('span', { className: 'dff-frame-note' }, t('previewHtmlNote')))
+        }
+        if (kind === 'markdown') {
+          const source = file && typeof file.text === 'string' ? file.text : ''
+          if (!source) return viewerEmpty()
+          return h('div', { className: 'dff-doc-wrap', 'data-dff-viewer': 'markdown' },
+            MarkdownText
+              ? h('div', { className: 'dff-markdown', onClickCapture: onMarkdownClick },
+                h(MarkdownText, { text: rewriteMarkdownAssets(source, root, file.path), variant: 'body' }))
+              : h('pre', { className: 'dff-markdown-fallback' }, source))
+        }
+        return viewerEmpty()
+      }
+
+      function viewerEmpty() {
+        return h('div', { className: 'dff-viewer-empty' },
+          h(WarningIcon, { size: 22, className: 'dff-viewer-empty-icon' }),
+          h('strong', null, t('previewUnsupported')),
+          h('p', null, t('previewUnsupportedHint')))
+      }
+
+      function viewerView() {
+        const name = file ? baseName(file.path) : t('title')
+        const kind = file && file.kind ? file.kind : 'binary'
+        const canEdit = Boolean(file && typeof file.text === 'string' && file.text.length > 0
+          && (kind === 'markdown' || kind === 'html'))
+        return h('div', { className: 'dff-view', key: 'viewer' },
+          h('div', { className: 'dff-head dff-head-editor' },
+            h('button', {
+              type: 'button', className: 'dff-icon-btn', 'aria-label': t('back'),
+              onClick: leaveEditor,
+            }, h(BackIcon, { size: 16 })),
+            h('span', { className: 'dff-editor-glyph' }, h(FileGlyph, { name, size: 20 })),
+            h('span', { className: 'dff-editor-title' },
+              h('strong', null, name),
+              h('small', { title: file ? file.path : '' }, h('bdi', null, file ? (dirOf(relativePath(root, file.path)) || baseName(root) || parentOf(file.path)) : ''))),
+            h('span', { className: 'dff-editor-state', 'data-state': 'readonly' },
+              h('span', { className: 'dff-dot', 'aria-hidden': 'true' }),
+              kind === 'binary' ? t('unpreviewable') : t('readOnly')),
+            h('div', { className: 'dff-editor-actions' },
+              canEdit ? h('button', {
+                type: 'button', className: 'dff-ghost-btn', disabled: busy, onClick: switchToEditor,
+              }, t('editText')) : null,
+              h('button', { type: 'button', className: 'dff-icon-btn', 'aria-label': t('openInSidebar'), title: t('openInSidebar'), disabled: busy, onClick: previewCurrent }, h(SidebarIcon, { size: 16 })),
+              h('button', { type: 'button', className: 'dff-icon-btn', 'aria-label': t('reload'), title: t('reload'), disabled: busy, onClick: reloadFile }, h(RefreshIcon, { size: 15 })),
+              h('button', { type: 'button', className: 'dff-icon-btn', 'aria-label': t('close'), onClick: closePanel }, h(CloseIcon, { size: 16 })))),
+          message(),
+          h('div', { className: 'dff-viewer-body' },
+            h('div', { className: 'dff-editor-meta dff-viewer-meta' },
+              h('span', { className: 'dff-editor-path', title: file ? file.path : '' }, h('bdi', null, file ? file.path : '')),
+              h('span', { className: 'dff-editor-stats' },
+                file && file.bytes ? h('span', null, bytesText(file.bytes)) : null,
+                h('span', null, t('kind' + (kind.charAt(0).toUpperCase() + kind.slice(1)))))),
+            viewerBody(kind)))
+      }
+
       function editorView() {
         const name = file ? baseName(file.path) : t('title')
         const state = dirty ? 'dirty' : status === t('conflict') ? 'conflict' : 'saved'
@@ -1729,7 +1961,7 @@ window.__ModuleLoader__.load({
         'aria-modal': 'true',
         'aria-label': t('title'),
         onKeyDown: onPanelKey,
-      }, view === 'search' ? searchView() : editorView()))
+      }, view === 'search' ? searchView() : file && file.kind && file.kind !== 'text' ? viewerView() : editorView()))
     }
 
     function SettingsPage(props) {
@@ -2420,6 +2652,57 @@ window.__ModuleLoader__.load({
       .dff-editor::-webkit-scrollbar { width: 10px; height: 10px; }
       .dff-editor::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 10px; background-clip: content-box; background-color: var(--dsw-alias-scrollbar-bg-l1); }
       .dff-editor::-webkit-scrollbar-thumb:hover { background-color: var(--dsw-alias-scrollbar-hover-l1); }
+
+
+      /* ── Built-in viewer ──────────────────────────────────────────────── */
+      .dff-viewer-body { display: flex; flex-direction: column; flex: 1; min-height: 0; padding: 10px 12px 12px; }
+      .dff-viewer-meta { padding-bottom: 8px; }
+      .dff-media {
+        flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;
+        padding: 14px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px;
+        background: var(--dsw-alias-bg-module-platform); overflow: hidden;
+      }
+      .dff-media.is-dark { background: #0b0d12; }
+      .dff-media-image { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+      .dff-media-video { max-width: 100%; max-height: 100%; border-radius: 8px; background: #000; }
+      .dff-media-audio { padding: 40px; }
+      .dff-media-audio audio { width: min(520px, 100%); }
+      .dff-frame-wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+      .dff-frame { flex: 1; min-height: 0; width: 100%; border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px; background: #fff; }
+      .dff-frame-note { flex: none; padding: 8px 2px 0; color: var(--dsw-alias-label-tertiary); font-size: 11px; }
+      .dff-doc-wrap { flex: 1; min-height: 0; display: flex; }
+      .dff-markdown {
+        flex: 1; min-height: 0; overflow: auto; padding: 20px 26px;
+        border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px;
+        background: var(--dsw-alias-markdown-code-block);
+        color: var(--dsw-alias-label-primary);
+      }
+      .dff-markdown img { max-width: 100%; height: auto; border-radius: 8px; }
+      .dff-markdown-fallback {
+        flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 18px 20px;
+        border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px;
+        background: var(--dsw-alias-markdown-code-block);
+        color: var(--dsw-alias-label-primary);
+        font: 12.5px/20px var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+        white-space: pre-wrap; word-break: break-word;
+      }
+      .dff-viewer-empty {
+        flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+        border: 1px dashed var(--dsw-alias-border-l2); border-radius: 12px;
+        color: var(--dsw-alias-label-secondary); text-align: center; padding: 24px;
+      }
+      .dff-viewer-empty strong { font-size: 14px; color: var(--dsw-alias-label-primary); }
+      .dff-viewer-empty p { margin: 0; max-width: 420px; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-tertiary); }
+      .dff-viewer-empty-icon { color: var(--dsw-alias-label-tertiary); }
+      .dff-editor-state[data-state="readonly"] { color: var(--dsw-alias-label-tertiary); }
+      .dff-editor-state[data-state="readonly"] .dff-dot { background: var(--dsw-alias-label-tertiary); opacity: 0.6; animation: none; }
+      .dff-ghost-btn {
+        height: 28px; padding: 0 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px;
+        background: transparent; color: var(--dsw-alias-label-secondary);
+        font: inherit; font-size: 12px; cursor: pointer;
+      }
+      .dff-ghost-btn:hover:not(:disabled) { background: var(--dsw-alias-bg-module-platform); color: var(--dsw-alias-label-primary); }
+      .dff-ghost-btn:disabled { opacity: 0.4; cursor: default; }
 
       .dff-banner {
         display: flex; align-items: center; gap: 8px;

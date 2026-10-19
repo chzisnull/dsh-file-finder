@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>dsh-file-finder · viewer check</title>
+<script>
+  // Fake workspace responses for the viewer checks. The file paths are virtual;
+  // the viewer's raw URLs are asserted for shape, not fetched.
+  (function () {
+    var FILES = {
+      '/ws/notes.md': { kind: 'markdown', text: '# Title\n\n![shot](assets/logo.png)\n\nSome *text*.\n', bytes: 48 },
+      '/ws/logo.png': { kind: 'image', bytes: 2048 },
+      '/ws/page.html': { kind: 'html', text: '<!doctype html><h1>hi</h1>', bytes: 40 },
+      '/ws/clip.mp4': { kind: 'video', bytes: 4096 },
+      '/ws/data.bin': { kind: 'binary', bytes: 32 },
+    }
+    function response(body, status) {
+      return { ok: true, status: status || 200, json: function () { return Promise.resolve(body) } }
+    }
+    window.fetch = function (input, init) {
+      var url = typeof input === 'string' ? input : (input && input.url) || ''
+      var path = url
+      try { path = new URL(url, location.href).pathname } catch (error) { /* raw */ }
+      var body = {}
+      try { if (init && typeof init.body === 'string') body = JSON.parse(init.body) } catch (error) { body = {} }
+      if (path === '/dsh-file-finder/roots') {
+        return Promise.resolve(response({ ok: true, roots: [{ path: '/ws', title: 'ws', source: 'workspace' }], current: '/ws' }))
+      }
+      if (path === '/dsh-file-finder/search-name') {
+        var query = String(body.query || '')
+        return Promise.resolve(response({ ok: true, mode: 'name', root: '/ws', truncated: false,
+          results: [{ path: '/ws/' + query, name: query, score: 0 }] }))
+      }
+      if (path === '/dsh-file-finder/read') {
+        var file = FILES[body.path] || { kind: 'binary', bytes: 0 }
+        return Promise.resolve(response({
+          ok: true, path: body.path, version: '1', bytes: file.bytes,
+          kind: file.kind, text: file.text,
+        }))
+      }
+      return Promise.resolve(response({ ok: false, error: 'unexpected ' + path }))
+    }
+  })()
+</script>
+</head>
+<body>
+<div id="host"></div>
+<script src="./vendor/react.development.js"></script>
+<script src="./vendor/react-dom.development.js"></script>
+<script src="./loader-shim.js"></script>
+<script src="../client.js"></script>
+<script>
+  (function () {
+    'use strict'
+    var results = []
+    var shortcuts = []
+    var slots = []
+    var overrides = {}
+
+    function check(name, ok, detail) {
+      results.push({ name: name, ok: Boolean(ok), detail: detail === undefined ? null : String(detail) })
+    }
+
+    function text(node) { return node ? String(node.textContent || '') : '' }
+
+    function setInputValue(input, value) {
+      var setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+      setter.call(input, value)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+
+    async function waitFor(checkFn, timeout) {
+      var started = performance.now()
+      for (;;) {
+        var value = null
+        try { value = checkFn() } catch (error) { value = null }
+        if (value) return value
+        if (performance.now() - started > (timeout || 4000)) throw new Error('timed out waiting for a selector')
+        await new Promise(function (resolve) { setTimeout(resolve, 30) })
+      }
+    }
+
+    var ctx = {
+      effect: function (fn) { try { var off = fn(); return function () { try { if (typeof off === 'function') off() } catch (e) {} } } catch (e) { return function () {} } },
+      get: function () { return undefined },
+      inject: function (names, callback) {
+        callback({
+          effect: ctx.effect,
+          shortcuts: { register: function (command) { shortcuts.push(command); return function () {} } },
+        })
+      },
+      locale: { register: function () {}, bind: function () { return function (key) { return key } } },
+      slots: {
+        inject: function (name, callback) { callback() },
+        register: function (entry, component) { slots.push({ entry: entry, component: component }); return function () {} },
+      },
+    }
+
+    async function openSearch(query) {
+      var input = document.querySelector('[data-dff-input]')
+      if (!input) {
+        var shortcut = shortcuts.filter(function (command) { return command.id === 'files.searchName' })[0]
+        if (shortcut) shortcut.resolve().run()
+        input = await waitFor(function () { return document.querySelector('[data-dff-input]') })
+      }
+      setInputValue(input, query)
+      // The palette debounces the query and React commits on a later tick; give
+      // the mocked request room before insisting on a row.
+      await new Promise(function (resolve) { setTimeout(resolve, 350) })
+      var row = await waitFor(function () { return document.querySelector('[data-dff-result]') }, 8000)
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }))
+      return waitFor(function () { return document.querySelector('[data-dff-viewer], .dff-viewer-empty') })
+    }
+
+    async function backToSearch() {
+      var back = document.querySelector('[aria-label="back"]')
+      if (back) back.click()
+      await waitFor(function () { return document.querySelector('[data-dff-input]') }, 6000)
+    }
+
+    ;(async function run() {
+      var moduleExports = window.__DFF_MODULE__
+      await moduleExports.apply(ctx)
+      var overlay = slots.filter(function (slot) { return slot.entry && slot.entry.name === 'shell.overlay' })[0]
+      var root = ReactDOM.createRoot(document.getElementById('host'))
+      root.render(React.createElement(overlay.component, {}))
+      await new Promise(function (resolve) { setTimeout(resolve, 50) })
+
+      var markdown = await openSearch('notes.md')
+      var mdBody = document.querySelector('[data-dff-viewer="markdown"]')
+      check('markdown opens the viewer', Boolean(markdown))
+      check('markdown renders a document body', Boolean(mdBody) && Boolean(mdBody.querySelector('pre, .markdown')), mdBody ? mdBody.className : '')
+      check('markdown shows the read-only state', text(document.querySelector('.dff-editor-state')) === 'readOnly')
+      check('markdown offers Edit source', Boolean(document.querySelector('.dff-ghost-btn')))
+      check('markdown hides Save', !document.querySelector('.dff-save'))
+      await backToSearch()
+
+      var image = await openSearch('logo.png')
+      var img = document.querySelector('.dff-media-image')
+      check('image opens an <img>', Boolean(img), image ? image.getAttribute('data-dff-viewer') : '')
+      check('image src uses the raw route', Boolean(img) && img.getAttribute('src').indexOf('/dsh-file-finder/ws/') === 0, img ? img.getAttribute('src').slice(0, 40) : '')
+      check('image state is localized', text(document.querySelector('.dff-editor-state')) === 'readOnly')
+      await backToSearch()
+
+      var html = await openSearch('page.html')
+      var frame = document.querySelector('[data-dff-viewer="html"] iframe')
+      check('html opens a sandboxed iframe', Boolean(frame) && frame.getAttribute('sandbox') === 'allow-scripts')
+      await backToSearch()
+
+      var video = await openSearch('clip.mp4')
+      var player = document.querySelector('[data-dff-viewer="video"] video')
+      check('video opens a <video> with controls', Boolean(player) && player.hasAttribute('controls'), video ? video.getAttribute('data-dff-viewer') : '')
+      await backToSearch()
+
+      var binary = await openSearch('data.bin')
+      check('binary shows the unsupported state', Boolean(document.querySelector('.dff-viewer-empty')))
+
+      window.__VIEWER_CHECK__ = {
+        passed: results.every(function (item) { return item.ok }),
+        results: results,
+      }
+    })().catch(function (error) {
+      window.__VIEWER_CHECK__ = { passed: false, results: results, error: String(error && error.stack ? error.stack : error) }
+    })
+  })()
+</script>
+</body>
+</html>
