@@ -20,7 +20,7 @@ The commands are registered with DSH's shortcut service, so saved overrides surv
 
 Linux Web has no default binding, because that profile only accepts a small set of browser-delivered combinations. Bind it from the shortcut reference. Cmd+P remains DSH's file tree.
 
-There is also a find button at the sidebar foot, and a row in General settings.
+There is a find button at the sidebar foot, and a File Finder page in Settings.
 
 ## Editing
 

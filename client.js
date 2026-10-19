@@ -31,9 +31,21 @@ window.__ModuleLoader__.load({
         keep: '继续编辑',
         line: '第 {line} 行',
         settingsTitle: '文件查找',
-        settingsBody: '按文件名和按内容各有一个快捷键，可在「设置 → 编辑快捷键」中修改。桌面版默认是 Shift+⌘/Ctrl+P 与 Shift+⌘/Ctrl+F；网页版默认是 Shift+⌘/Ctrl+P 与 Alt+⌘/Ctrl+F。',
+        settingsLead: '按文件名或文件内容搜索当前工作区，并在 DSH 里编辑文本文件。',
+        settingsShortcuts: '快捷键',
+        settingsSearch: '搜索',
+        settingsBody: '快捷键可以在「设置 → 编辑快捷键」里修改、清空或恢复默认。桌面版默认是 Shift+⌘/Ctrl+P 与 Shift+⌘/Ctrl+F；网页版默认是 Shift+⌘/Ctrl+P 与 Alt+⌘/Ctrl+F。',
         shortcutName: '按文件名搜索',
         shortcutContent: '按内容搜索',
+        shortcutNameKeys: 'Shift+⌘/Ctrl+P',
+        shortcutContentKeys: '桌面 Shift+⌘/Ctrl+F，网页 Alt+⌘/Ctrl+F',
+        caseSensitive: '区分大小写',
+        caseSensitiveHint: '关闭时，文件名和内容都不区分大小写。',
+        extraIgnore: '额外忽略的目录',
+        extraIgnoreHint: '用逗号分隔目录名，例如 tmp, coverage。不要写路径。',
+        nameLimit: '文件名结果上限',
+        contentLimit: '内容结果上限',
+        savedPrefs: '已保存',
         footer: '查找文件',
       },
       en: {
@@ -61,9 +73,21 @@ window.__ModuleLoader__.load({
         keep: 'Keep editing',
         line: 'Line {line}',
         settingsTitle: 'File Finder',
-        settingsBody: 'Name search and content search each have a shortcut. Change them in Settings → Edit shortcuts. Desktop defaults are Shift+Cmd/Ctrl+P and Shift+Cmd/Ctrl+F. Web defaults are Shift+Cmd/Ctrl+P and Alt+Cmd/Ctrl+F.',
+        settingsLead: 'Search the current workspace by file name or content, and edit text files inside DSH.',
+        settingsShortcuts: 'Shortcuts',
+        settingsSearch: 'Search',
+        settingsBody: 'Change, clear, or restore shortcuts in Settings → Edit shortcuts. Desktop defaults are Shift+Cmd/Ctrl+P and Shift+Cmd/Ctrl+F. Web defaults are Shift+Cmd/Ctrl+P and Alt+Cmd/Ctrl+F.',
         shortcutName: 'Search files by name',
         shortcutContent: 'Search files by content',
+        shortcutNameKeys: 'Shift+Cmd/Ctrl+P',
+        shortcutContentKeys: 'Desktop Shift+Cmd/Ctrl+F, Web Alt+Cmd/Ctrl+F',
+        caseSensitive: 'Case sensitive',
+        caseSensitiveHint: 'When off, name and content search ignore case.',
+        extraIgnore: 'Extra ignored directories',
+        extraIgnoreHint: 'Comma-separated directory names, such as tmp, coverage. Do not enter paths.',
+        nameLimit: 'Name result limit',
+        contentLimit: 'Content result limit',
+        savedPrefs: 'Saved',
         footer: 'Find files',
       },
     }
@@ -83,6 +107,45 @@ window.__ModuleLoader__.load({
       close() {
         store.state = { open: false, mode: store.state.mode, token: store.state.token }
         store.listeners.forEach((listener) => listener())
+      },
+    }
+
+    const SETTINGS_KEY = 'dsh-file-finder.settings.v1'
+    function clampSetting(value, min, max, fallback) {
+      const number = Number(value)
+      if (!Number.isFinite(number)) return fallback
+      return Math.min(max, Math.max(min, Math.trunc(number)))
+    }
+    function normalizePrefs(raw) {
+      const source = raw && typeof raw === 'object' ? raw : {}
+      return {
+        caseSensitive: Boolean(source.caseSensitive),
+        extraIgnore: String(source.extraIgnore || ''),
+        nameLimit: clampSetting(source.nameLimit, 5, 100, 40),
+        contentLimit: clampSetting(source.contentLimit, 5, 200, 80),
+      }
+    }
+    function readPrefs() {
+      try {
+        return normalizePrefs(JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'))
+      } catch {
+        return normalizePrefs({})
+      }
+    }
+    const prefs = {
+      state: readPrefs(),
+      revision: 0,
+      listeners: new Set(),
+      snapshot() { return prefs.state },
+      subscribe(listener) {
+        prefs.listeners.add(listener)
+        return () => prefs.listeners.delete(listener)
+      },
+      save(next) {
+        prefs.state = normalizePrefs(next)
+        prefs.revision += 1
+        try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(prefs.state)) } catch { /* private mode */ }
+        prefs.listeners.forEach((listener) => listener())
       },
     }
 
@@ -190,7 +253,7 @@ window.__ModuleLoader__.load({
         setError('')
         const timer = setTimeout(() => {
           const path = mode === 'content' ? '/dsh-file-finder/search-content' : '/dsh-file-finder/search-name'
-          post(path, { root, query: needle }).then((data) => {
+          post(path, { root, query: needle, options: prefs.snapshot() }).then((data) => {
             if (generation.current !== ticket) return
             setResults(Array.isArray(data.results) ? data.results : [])
             setTruncated(Boolean(data.truncated))
@@ -204,7 +267,7 @@ window.__ModuleLoader__.load({
           })
         }, 180)
         return () => clearTimeout(timer)
-      }, [request.open, view, mode, query, root])
+      }, [request.open, view, mode, query, root, useSyncExternalStore(prefs.subscribe, () => prefs.revision, () => prefs.revision)])
 
       const dirty = file && draft !== file.text
       const flat = useMemo(() => results.flatMap((item) => {
@@ -429,14 +492,69 @@ window.__ModuleLoader__.load({
       }, h('style', null, css), '⌕')
     }
 
-    function SettingsRow(props) {
+    function SettingsPage(props) {
       const t = props.t
-      return h('div', { className: 'dff-settings' },
+      const current = useSyncExternalStore(prefs.subscribe, prefs.snapshot, prefs.snapshot)
+      const [draft, setDraft] = useState(current)
+      const [saved, setSaved] = useState(false)
+      useEffect(() => { setDraft(current) }, [current])
+      function update(patch) {
+        const next = { ...draft, ...patch }
+        setDraft(next)
+        prefs.save(next)
+        setSaved(true)
+      }
+      return h('div', { className: 'dff-page' },
         h('style', null, css),
-        h('div', null,
-          h('strong', null, t('settingsTitle')),
-          h('p', null, t('settingsBody'))),
-        h('button', { type: 'button', onClick: () => store.openSearch('name') }, t('open')))
+        h('h2', { className: 'dff-page-title' }, t('settingsTitle')),
+        h('p', { className: 'dff-page-lead' }, t('settingsLead')),
+        h('section', { className: 'dff-page-section' },
+          h('h3', null, t('settingsShortcuts')),
+          shortcutRow(t('shortcutName'), t('shortcutNameKeys'), () => store.openSearch('name')),
+          shortcutRow(t('shortcutContent'), t('shortcutContentKeys'), () => store.openSearch('content')),
+          h('p', { className: 'dff-page-hint' }, t('settingsBody'))),
+        h('section', { className: 'dff-page-section' },
+          h('h3', null, t('settingsSearch')),
+          h('label', { className: 'dff-page-row' },
+            h('span', null,
+              h('strong', null, t('caseSensitive')),
+              h('small', null, t('caseSensitiveHint'))),
+            h('input', {
+              type: 'checkbox',
+              role: 'switch',
+              'aria-checked': draft.caseSensitive,
+              checked: draft.caseSensitive,
+              onChange: (event) => update({ caseSensitive: event.target.checked }),
+            })),
+          h('label', { className: 'dff-page-field' },
+            h('span', null, t('extraIgnore')),
+            h('input', {
+              value: draft.extraIgnore,
+              placeholder: 'tmp, coverage',
+              onChange: (event) => update({ extraIgnore: event.target.value }),
+            }),
+            h('small', null, t('extraIgnoreHint'))),
+          h('label', { className: 'dff-page-field' },
+            h('span', null, t('nameLimit')),
+            h('input', {
+              type: 'number', min: 5, max: 100, value: draft.nameLimit,
+              onChange: (event) => update({ nameLimit: event.target.value }),
+            })),
+          h('label', { className: 'dff-page-field' },
+            h('span', null, t('contentLimit')),
+            h('input', {
+              type: 'number', min: 5, max: 200, value: draft.contentLimit,
+              onChange: (event) => update({ contentLimit: event.target.value }),
+            })),
+          saved ? h('p', { className: 'dff-page-saved' }, t('savedPrefs')) : null))
+
+      function shortcutRow(label, keys, onOpen) {
+        return h('div', { className: 'dff-page-row' },
+          h('span', null,
+            h('strong', null, label),
+            h('small', null, keys)),
+          h('button', { type: 'button', onClick: () => { props.close && props.close(); onOpen() } }, t('open')))
+      }
     }
 
     function bound(Component, t) {
@@ -476,8 +594,20 @@ window.__ModuleLoader__.load({
       .dff-danger { color: var(--dsw-alias-state-error-primary); }
       .dff-editor { flex: 1; min-height: 240px; margin: 12px 14px 14px; padding: 12px; resize: none; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; line-height: 20px; }
       .dff-footer { width: 32px; height: 32px; padding: 0; font-size: 16px; cursor: pointer; }
-      .dff-settings { justify-content: space-between; gap: 16px; padding: 4px 0; }
-      .dff-settings p { margin: 4px 0 0; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 1.5; }
+      .dff-page { display: flex; flex-direction: column; gap: 18px; max-width: 640px; color: var(--dsw-alias-label-primary); }
+      .dff-page-title { margin: 0; font-size: 20px; font-weight: 600; }
+      .dff-page-lead, .dff-page-hint, .dff-page small { color: var(--dsw-alias-label-secondary); }
+      .dff-page-lead, .dff-page-hint, .dff-page-saved { margin: 0; font-size: 13px; line-height: 1.5; }
+      .dff-page-saved { color: var(--dsw-alias-state-success-primary); }
+      .dff-page-section { display: flex; flex-direction: column; gap: 12px; padding-top: 4px; border-top: 1px solid var(--dsw-alias-border-l1); }
+      .dff-page-section h3 { margin: 12px 0 0; font-size: 14px; }
+      .dff-page-row, .dff-page-field { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+      .dff-page-field { align-items: stretch; flex-direction: column; gap: 6px; }
+      .dff-page-row span, .dff-page-field span { display: flex; flex-direction: column; gap: 4px; }
+      .dff-page small { font-size: 12px; line-height: 1.4; }
+      .dff-page input[type="text"], .dff-page input:not([type]), .dff-page input[type="number"] { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); font: inherit; }
+      .dff-page button { padding: 6px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); font: inherit; cursor: pointer; }
+      .dff-page input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--dsw-alias-brand-primary); }
       .dff-panel button:disabled { cursor: default; opacity: 0.55; }
     `
 
@@ -516,15 +646,15 @@ window.__ModuleLoader__.load({
         }
         const Search = bound(Palette, t)
         const Foot = bound(FooterButton, t)
-        const Settings = bound(SettingsRow, t)
+        const Settings = bound(SettingsPage, t)
         ctx.slots.inject('shell.overlay', () => ctx.slots.register({
           name: 'shell.overlay', id: 'file-finder', order: 40,
         }, (props) => h(Search, { ...props, ctx })))
         ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
           name: 'sidebar.footer.action', id: 'file-finder', order: 20, label: () => t('footer'),
         }, Foot))
-        ctx.slots.inject('settings.general.item', () => ctx.slots.register({
-          name: 'settings.general.item', id: 'file-finder', order: 40, label: () => t('settingsTitle'),
+        ctx.slots.inject('settings.section', () => ctx.slots.register({
+          name: 'settings.section', id: 'file-finder', order: 18, label: () => t('settingsTitle'),
         }, Settings))
       },
     }

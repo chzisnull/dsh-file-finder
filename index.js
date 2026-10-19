@@ -31,35 +31,61 @@ const BINARY_EXT = new Set([
   'ipa', 'apk', 'aar',
 ])
 
+function fold(value, caseSensitive) {
+  const text = String(value || '')
+  return caseSensitive ? text : text.toLowerCase()
+}
+
 /** Rank a workspace path against a filename query. Lower score is a closer match. */
-export function rankName(query, displayPath) {
-  const needle = String(query || '').trim().toLowerCase()
+export function rankName(query, displayPath, options = {}) {
+  const caseSensitive = Boolean(options.caseSensitive)
+  const needle = fold(String(query || '').trim(), caseSensitive)
   if (!needle) return null
   const normalized = String(displayPath || '').replaceAll('\\', '/')
   const name = normalized.split('/').pop() || normalized
-  const nameLower = name.toLowerCase()
-  const stem = nameLower.includes('.') ? nameLower.slice(0, nameLower.lastIndexOf('.')) : nameLower
-  const pathLower = normalized.toLowerCase()
-  if (nameLower === needle || stem === needle) return { score: 0, name, path: normalized }
-  if (nameLower.startsWith(needle) || stem.startsWith(needle)) return { score: 1, name, path: normalized }
-  if (nameLower.includes(needle)) return { score: 2, name, path: normalized }
-  if (needle.includes('/') && pathLower.includes(needle)) return { score: 3, name, path: normalized }
+  const nameFold = fold(name, caseSensitive)
+  const stem = nameFold.includes('.') ? nameFold.slice(0, nameFold.lastIndexOf('.')) : nameFold
+  const pathFold = fold(normalized, caseSensitive)
+  if (nameFold === needle || stem === needle) return { score: 0, name, path: normalized }
+  if (nameFold.startsWith(needle) || stem.startsWith(needle)) return { score: 1, name, path: normalized }
+  if (nameFold.includes(needle)) return { score: 2, name, path: normalized }
+  if (needle.includes('/') && pathFold.includes(needle)) return { score: 3, name, path: normalized }
   return null
 }
 
-/** Case-insensitive line hits. `line` is 1-based. */
-export function contentHits(text, query, maxHits) {
-  const needle = String(query || '')
-  const folded = needle.toLowerCase()
-  if (!folded.trim()) return []
+/** Line hits. `line` is 1-based. Matching is case-insensitive unless asked otherwise. */
+export function contentHits(text, query, maxHits, options = {}) {
+  const caseSensitive = Boolean(options.caseSensitive)
+  const needle = fold(String(query || ''), caseSensitive)
+  if (!needle.trim()) return []
   const lines = String(text).split(/\r?\n/)
   const hits = []
   const cap = maxHits > 0 ? maxHits : lines.length
   for (let index = 0; index < lines.length && hits.length < cap; index += 1) {
-    if (!lines[index].toLowerCase().includes(folded)) continue
+    if (!fold(lines[index], caseSensitive).includes(needle)) continue
     hits.push({ line: index + 1, text: clip(lines[index].trim(), 180) })
   }
   return hits
+}
+
+function clampInt(value, min, max, fallback) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) return fallback
+  return Math.min(max, Math.max(min, Math.trunc(number)))
+}
+
+export function normalizeSearchOptions(raw) {
+  const source = raw && typeof raw === 'object' ? raw : {}
+  return {
+    caseSensitive: Boolean(source.caseSensitive),
+    extraIgnore: String(source.extraIgnore || '')
+      .split(/[,\n]/)
+      .map((item) => item.trim())
+      .filter((item) => item && !item.includes('/') && !item.includes('\\'))
+      .slice(0, 40),
+    nameLimit: clampInt(source.nameLimit, 5, 100, NAME_RESULT_CAP),
+    contentLimit: clampInt(source.contentLimit, 5, 200, CONTENT_HIT_CAP),
+  }
 }
 
 function clip(value, max) {
@@ -156,7 +182,7 @@ async function fileBytes(ctx, entry, signal) {
   return info && typeof info.size === 'number' ? info.size : undefined
 }
 
-async function walkFiles(ctx, rootTarget, maxFiles, signal, visit) {
+async function walkFiles(ctx, rootTarget, maxFiles, signal, visit, extraIgnore = []) {
   const stack = [rootTarget]
   let seen = 0
   while (stack.length) {
@@ -170,7 +196,7 @@ async function walkFiles(ctx, rootTarget, maxFiles, signal, visit) {
     }
     for (const entry of entries) {
       if (entry.type === 'directory') {
-        if (!IGNORED_DIRS.has(entry.name)) stack.push(entry.target)
+        if (!IGNORED_DIRS.has(entry.name) && !extraIgnore.includes(entry.name)) stack.push(entry.target)
         continue
       }
       if (entry.type !== 'file' || SKIP_FILES.has(entry.name)) continue
@@ -212,8 +238,9 @@ function collectRoots(ctx) {
   return items
 }
 
-async function searchName(ctx, rootPath, query, signal) {
+async function searchName(ctx, rootPath, query, signal, options) {
   const needle = String(query || '').trim()
+  const prefs = normalizeSearchOptions(options)
   if (!needle) throw new Error('请输入文件名')
   if (needle.length > QUERY_CAP) throw new Error('搜索词过长')
   const { root } = await resolveInside(ctx, rootPath, rootPath)
@@ -221,18 +248,18 @@ async function searchName(ctx, rootPath, query, signal) {
   if (!info || info.type !== 'directory') throw new Error('工作区路径不是目录')
   const matches = []
   const walked = await walkFiles(ctx, root, NAME_FILE_CAP, signal, async (entry) => {
-    const ranked = rankName(needle, visiblePath(ctx, entry.target))
+    const ranked = rankName(needle, visiblePath(ctx, entry.target), prefs)
     if (!ranked) return false
     matches.push(ranked)
     return false
-  })
+  }, prefs.extraIgnore)
   matches.sort((left, right) => left.score - right.score || left.path.length - right.path.length || left.path.localeCompare(right.path))
   return {
     ok: true,
     mode: 'name',
     root: visiblePath(ctx, root),
     truncated: walked.truncated,
-    results: matches.slice(0, NAME_RESULT_CAP).map((item) => ({
+    results: matches.slice(0, prefs.nameLimit).map((item) => ({
       path: item.path,
       name: item.name,
       score: item.score,
@@ -240,8 +267,9 @@ async function searchName(ctx, rootPath, query, signal) {
   }
 }
 
-async function searchContent(ctx, rootPath, query, signal) {
+async function searchContent(ctx, rootPath, query, signal, options) {
   const needle = String(query || '').trim()
+  const prefs = normalizeSearchOptions(options)
   if (needle.length < 2) throw new Error('按内容搜索至少输入 2 个字符')
   if (needle.length > QUERY_CAP) throw new Error('搜索词过长')
   const { root } = await resolveInside(ctx, rootPath, rootPath)
@@ -250,7 +278,7 @@ async function searchContent(ctx, rootPath, query, signal) {
   const results = []
   let bytes = 0
   const walked = await walkFiles(ctx, root, CONTENT_FILE_CAP, signal, async (entry) => {
-    if (results.length >= CONTENT_HIT_CAP) return true
+    if (results.length >= prefs.contentLimit) return true
     if (BINARY_EXT.has(extensionOf(entry.name))) return false
     const size = await fileBytes(ctx, entry, signal)
     if (typeof size === 'number' && (size > CONTENT_FILE_BYTES || bytes + size > CONTENT_TOTAL_BYTES)) return false
@@ -261,14 +289,14 @@ async function searchContent(ctx, rootPath, query, signal) {
       return false
     }
     bytes += typeof size === 'number' ? size : text.length
-    const hits = contentHits(text, needle, CONTENT_HITS_PER_FILE)
+    const hits = contentHits(text, needle, CONTENT_HITS_PER_FILE, prefs)
     if (!hits.length) return false
     results.push({
       path: visiblePath(ctx, entry.target),
       name: entry.name,
       hits,
     })
-    return results.reduce((sum, item) => sum + item.hits.length, 0) >= CONTENT_HIT_CAP
+    return results.reduce((sum, item) => sum + item.hits.length, 0) >= prefs.contentLimit
   })
   return {
     ok: true,
@@ -331,8 +359,8 @@ async function dispatch(ctx, args, agent, signal) {
   const action = args && args.action
   const root = (args && args.root) || cwdOf(agent)
   if (action === 'roots') return { ok: true, roots: collectRoots(ctx), current: cwdOf(agent) }
-  if (action === 'search-name') return searchName(ctx, root, args.query, signal)
-  if (action === 'search-content') return searchContent(ctx, root, args.query, signal)
+  if (action === 'search-name') return searchName(ctx, root, args.query, signal, args.options)
+  if (action === 'search-content') return searchContent(ctx, root, args.query, signal, args.options)
   if (action === 'read') return readFile(ctx, root, args.path, signal)
   if (action === 'save') return saveFile(ctx, root, args.path, args.content, args.version, signal)
   throw new Error('未知操作')
@@ -413,4 +441,15 @@ function registerTool(ctx) {
 export function apply(ctx) {
   registerRoutes(ctx)
   registerTool(ctx)
+  if (typeof ctx.inject === 'function') {
+    ctx.inject(['settings'], (scoped) => {
+      scoped.effect(() => {
+        try {
+          return scoped.settings.configure({ auto: false }, scoped.fiber)
+        } catch {
+          return () => {}
+        }
+      })
+    })
+  }
 }
