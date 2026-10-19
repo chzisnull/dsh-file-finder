@@ -52,6 +52,7 @@ const CAPTURES = [
   { key: 'palette-loading', hash: 'palette-loading', viewport: MAIN_VIEWPORT },
   { key: 'editor', hash: 'editor', viewport: MAIN_VIEWPORT },
   { key: 'editor-dirty', hash: 'editor-dirty', viewport: MAIN_VIEWPORT },
+  { key: 'editor-find', hash: 'editor-find', viewport: MAIN_VIEWPORT },
   { key: 'settings', hash: 'settings', viewport: SETTINGS_VIEWPORT },
   { key: 'settings-wide', hash: 'settings', viewport: MAIN_VIEWPORT },
   // Taller viewport so the whole settings page (all cards + reset footer) is
@@ -76,6 +77,7 @@ const REQUIRED_KEYS = [
   'palette-empty',
   'editor',
   'editor-dirty',
+  'editor-find',
   'settings',
 ]
 
@@ -286,6 +288,8 @@ function collectInfo() {
     resultCount: results.length,
     hasSelectedResult: Boolean(selected),
     hasEditor: Boolean(editor),
+    hasFind: Boolean(document.querySelector('[data-dff-find]')),
+    findMarks: document.querySelectorAll('.dff-editor-mirror mark.dff-find-hit').length,
     editorLength: editor ? String(typeof editor.value === 'string' ? editor.value : editor.innerText || '').length : 0,
     hasSettings: Boolean(settings),
     dirtyState: Boolean(document.querySelector('[data-state="dirty"]')),
@@ -387,6 +391,12 @@ function validateState(stateKey, info, pushWarning) {
       }
       if (!info.hasEditor) fail('editor not found. Expected [data-dff-editor] or .dff-editor.')
       if (info.editorLength < 40) fail(`editor looks empty (text length ${info.editorLength})`)
+      break
+    }
+    case 'editor-find': {
+      if (!info.hasEditor) fail('editor not found for the in-file find shot')
+      if (!info.hasFind) fail('find widget not found. Expected [data-dff-find].')
+      if (info.findMarks < 1) fail(`no match highlight was rendered (found ${info.findMarks})`)
       break
     }
     case 'settings': {

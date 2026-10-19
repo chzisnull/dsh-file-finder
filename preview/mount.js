@@ -25,6 +25,7 @@
     'palette-loading',
     'editor',
     'editor-dirty',
+    'editor-find',
     'settings',
   ]
   const CWD = '/workspace/dsh-file-finder'
@@ -712,7 +713,7 @@ export function rankName(query, displayPath, options = {}) {
     }
 
     const query = state === 'palette-empty' ? 'zzzznomatch'
-      : state === 'editor' || state === 'editor-dirty' ? 'index'
+      : state === 'editor' || state === 'editor-dirty' || state === 'editor-find' ? 'index'
         : mode === 'content' ? 'parser' : 'index'
     await setQuery(query)
 
@@ -727,7 +728,7 @@ export function rankName(query, displayPath, options = {}) {
       return
     }
 
-    if (state === 'editor' || state === 'editor-dirty') {
+    if (state === 'editor' || state === 'editor-dirty' || state === 'editor-find') {
       await waitForResults(5)
       await openFirstResult()
       await waitFor(() => {
@@ -735,10 +736,38 @@ export function rankName(query, displayPath, options = {}) {
         return editor && (editor.value || editor.innerText || '').trim().length > 40
       }, 4000, 'the editor to receive file text')
       if (state === 'editor-dirty') await dirtyEditorAndConfirmBack()
+      if (state === 'editor-find') await openEditorFind('needle')
       return
     }
 
     await waitForResults(5)
+  }
+
+
+  /**
+   * Open the built-in editor's in-file find and type a query, so the harness can
+   * capture the find widget together with its match highlights.
+   */
+  async function openEditorFind(query) {
+    const editor = pick(SELECTORS.editor)
+    if (!editor) throw new Error('editor not found while opening in-file find')
+    editor.focus()
+    editor.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'f', code: 'KeyF', metaKey: true, bubbles: true, cancelable: true,
+    }))
+    const input = await waitFor(
+      () => document.querySelector('[data-dff-find-input]'),
+      2500,
+      'the in-file find input',
+    )
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+    setter.call(input, query)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await waitFor(
+      () => document.querySelectorAll('.dff-editor-mirror mark.dff-find-hit').length > 0,
+      2500,
+      'the in-file find to highlight matches',
+    )
   }
 
   async function mountSettings() {

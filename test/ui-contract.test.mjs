@@ -91,3 +91,21 @@ test('the DS Bot bridge drives the controls DS Bot renders itself', () => {
   assert.match(source, /\[role="menuitem"\]/)
   assert.match(source, /'KeyB'/)
 })
+
+test('the built-in editor renders a line gutter', () => {
+  assert.match(source, /data-dff-gutter/)
+  assert.match(source, /dff-line-marker/)
+  assert.match(source, /const EDITOR_LINE_HEIGHT = 20/)
+  assert.match(source, /function trackActiveLine\(\)/)
+})
+
+test('the built-in editor finds inside the file', () => {
+  assert.match(source, /function findEditorMatches\(/)
+  assert.match(source, /data-dff-find/)
+  assert.match(source, /dff-editor-mirror/)
+  assert.match(source, /is-current/)
+  // Cmd/Ctrl+F is handled both in the textarea and at panel level.
+  assert.match(source, /event\.key\.toLowerCase\(\) === 'f'/)
+  assert.match(source, /function onFindKey\(event\)/)
+  assert.match(source, /function moveFind\(delta\)/)
+})

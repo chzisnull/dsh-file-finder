@@ -102,6 +102,13 @@ window.__ModuleLoader__.load({
         settingsBot: 'DS Bot',
         settingsBotHint: '在 Bot 模式和经典 Agent 模式之间切换。只在检测到 DS Bot 插件时出现。',
         shortcutBot: '切换 Bot / 经典 Agent 模式',
+        findPlaceholder: '在文件中查找…',
+        findCase: '区分大小写',
+        findPrev: '上一个匹配',
+        findNext: '下一个匹配',
+        findClose: '关闭查找',
+        findNoResult: '无结果',
+        hintFind: '查找',
       },
       en: {
         title: 'File Finder',
@@ -185,6 +192,13 @@ window.__ModuleLoader__.load({
         settingsBot: 'DS Bot',
         settingsBotHint: 'Switches between Bot mode and classic Agent mode. This section appears only when the DS Bot plugin is installed.',
         shortcutBot: 'Toggle Bot / classic Agent mode',
+        findPlaceholder: 'Find in file…',
+        findCase: 'Match case',
+        findPrev: 'Previous match',
+        findNext: 'Next match',
+        findClose: 'Close search',
+        findNoResult: 'No results',
+        hintFind: 'find',
       },
     }
 
@@ -495,6 +509,36 @@ window.__ModuleLoader__.load({
       }
       if (from < value.length) parts.push(value.slice(from))
       return parts
+    }
+
+    // ── In-editor find ─────────────────────────────────────────────────────
+    // One pass over the draft, with the line number derived as we go: a match
+    // jump never re-walks the file, and the line number is exact for CRLF text
+    // too because only `\n` (0x0a) advances the counter.
+    const EDITOR_LINE_HEIGHT = 20
+    const EDITOR_MATCH_CAP = 5000
+
+    function findEditorMatches(text, query, caseSensitive, cap = EDITOR_MATCH_CAP) {
+      const source = String(text || '')
+      const needle = String(query || '')
+      if (!needle) return { hits: [], total: 0 }
+      const haystack = caseSensitive ? source : source.toLowerCase()
+      const target = caseSensitive ? needle : needle.toLowerCase()
+      const hits = []
+      let total = 0
+      let line = 1
+      let scanned = 0
+      let at = haystack.indexOf(target)
+      while (at !== -1) {
+        for (let index = scanned; index < at; index += 1) {
+          if (haystack.charCodeAt(index) === 10) line += 1
+        }
+        scanned = at + target.length
+        total += 1
+        if (hits.length < cap) hits.push({ start: at, end: at + target.length, line })
+        at = haystack.indexOf(target, scanned)
+      }
+      return { hits, total }
     }
 
     function parentOf(filePath) {
@@ -812,8 +856,18 @@ window.__ModuleLoader__.load({
       const [status, setStatus] = useState('')
       const [confirmAction, setConfirmAction] = useState('')
       const [searchTick, setSearchTick] = useState(0)
+      const [findOpen, setFindOpen] = useState(false)
+      const [findQuery, setFindQuery] = useState('')
+      const [findCase, setFindCase] = useState(false)
+      const [findIndex, setFindIndex] = useState(0)
+      const [findFocused, setFindFocused] = useState(false)
       const inputRef = useRef(null)
       const editorRef = useRef(null)
+      const findInputRef = useRef(null)
+      const mirrorRef = useRef(null)
+      const gutterRef = useRef(null)
+      const markerRef = useRef(null)
+      const activeLineRef = useRef(1)
       const panelRef = useRef(null)
       const generation = useRef(0)
       const lastFocus = useRef(null)
@@ -834,6 +888,10 @@ window.__ModuleLoader__.load({
         setFile(null)
         setDraft('')
         setStatus('')
+        setFindOpen(false)
+        setFindQuery('')
+        setFindIndex(0)
+        setFindFocused(false)
         const session = sessionOf(ctx)
         if (session.cwd) setRoot(session.cwd)
         let cancelled = false
@@ -956,7 +1014,9 @@ window.__ModuleLoader__.load({
         const start = line === 1 ? 0 : offset + 1
         area.focus()
         area.setSelectionRange(start, start)
-        area.scrollTop = Math.max(0, (line - 3) * 20)
+        area.scrollTop = Math.max(0, (line - 3) * EDITOR_LINE_HEIGHT)
+        trackActiveLine()
+        syncEditorScroll(area)
       }, [request.open, view, file])
 
       useEffect(() => {
@@ -967,7 +1027,69 @@ window.__ModuleLoader__.load({
       }, [request.open, view, selected])
 
       const dirty = Boolean(file && draft !== file.text)
-      const lineCount = useMemo(() => (file ? file.text.split(/\r?\n/).length : 0), [file])
+      const lineCount = useMemo(() => (file ? draft.split(/\r?\n/).length : 0), [file, draft])
+      const findResult = useMemo(
+        () => findEditorMatches(draft, findQuery, findCase),
+        [draft, findQuery, findCase],
+      )
+      const mirrorOn = findOpen && findFocused && Boolean(findQuery)
+      // A single text node keeps the gutter cheap even for very large files.
+      const gutterText = useMemo(() => {
+        const total = Math.max(1, lineCount)
+        const parts = new Array(total)
+        for (let index = 0; index < total; index += 1) parts[index] = String(index + 1)
+        return parts.join('\n')
+      }, [lineCount])
+      const gutterWidth = useMemo(
+        () => 'calc(' + String(String(Math.max(1, lineCount)).length) + 'ch + 26px)',
+        [lineCount],
+      )
+      const mirrorNodes = useMemo(() => {
+        if (!mirrorOn) return null
+        const nodes = []
+        let from = 0
+        findResult.hits.forEach((hit, index) => {
+          if (hit.start > from) nodes.push(draft.slice(from, hit.start))
+          nodes.push(h('mark', {
+            key: 'm' + String(index),
+            className: index === findIndex ? 'dff-find-hit is-current' : 'dff-find-hit',
+          }, draft.slice(hit.start, hit.end)))
+          from = hit.end
+        })
+        if (from < draft.length) nodes.push(draft.slice(from))
+        return nodes
+      }, [draft, findResult, findIndex, mirrorOn])
+
+      // Keep the current match inside the list as the draft or the query changes.
+      useEffect(() => {
+        if (!findOpen) return
+        setFindIndex((value) => (findResult.hits.length ? Math.min(Math.max(0, value), findResult.hits.length - 1) : 0))
+      }, [findOpen, findResult])
+
+      useEffect(() => {
+        if (!findOpen) return
+        const input = findInputRef.current
+        if (!input) return
+        input.focus()
+        input.select()
+      }, [findOpen])
+
+      // Bring the active match into view. Horizontal alignment happens after the
+      // mirror has painted, because only the rendered <mark> knows where the
+      // match starts on a long, unwrapped line.
+      useEffect(() => {
+        if (!findOpen) return
+        const area = editorRef.current
+        const hit = findResult.hits[findIndex]
+        if (!area || !hit) return
+        const page = Math.max(EDITOR_LINE_HEIGHT, area.clientHeight - EDITOR_LINE_HEIGHT * 2)
+        const top = (hit.line - 1) * EDITOR_LINE_HEIGHT
+        if (top < area.scrollTop || top > area.scrollTop + page) {
+          area.scrollTop = Math.max(0, top - page / 2)
+        }
+        syncEditorScroll(area)
+        alignCurrentMark(area)
+      }, [findOpen, findIndex, findQuery, findCase, mirrorOn])
       const flat = useMemo(() => results.flatMap((item) => {
         if (mode === 'name') {
           const relative = relativePath(root, item.path)
@@ -1021,6 +1143,9 @@ window.__ModuleLoader__.load({
         setError('')
         setStatus('')
         setConfirmAction('')
+        setFindOpen(false)
+        setFindQuery('')
+        setFindIndex(0)
         try {
           const data = await post('/dsh-file-finder/read', { root, path: item.path })
           setFile({ path: data.path, version: data.version, text: data.text, bytes: data.bytes, line: item.line || 1 })
@@ -1118,6 +1243,12 @@ window.__ModuleLoader__.load({
       }
 
       function onPanelKey(event) {
+        if (view === 'editor' && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f') {
+          event.preventDefault()
+          event.stopPropagation()
+          openFind()
+          return
+        }
         if (event.key === 'Escape') {
           event.preventDefault()
           event.stopPropagation()
@@ -1163,11 +1294,123 @@ window.__ModuleLoader__.load({
         }
       }
 
+      function syncEditorScroll(area) {
+        if (!area) return
+        const top = area.scrollTop
+        const left = area.scrollLeft
+        if (mirrorRef.current) {
+          mirrorRef.current.style.transform = 'translate3d(' + String(-left) + 'px,' + String(-top) + 'px,0)'
+        }
+        if (gutterRef.current) {
+          gutterRef.current.style.transform = 'translate3d(0,' + String(-top) + 'px,0)'
+        }
+        positionActiveLine()
+      }
+
+      function positionActiveLine() {
+        const marker = markerRef.current
+        const area = editorRef.current
+        if (!marker || !area) return
+        const top = (activeLineRef.current - 1) * EDITOR_LINE_HEIGHT - area.scrollTop
+        marker.style.transform = 'translate3d(0,' + String(top) + 'px,0)'
+        marker.style.opacity = top <= -EDITOR_LINE_HEIGHT * 3 || top >= area.clientHeight ? '0' : '1'
+      }
+
+      // The caret line is derived from the live textarea, so it stays right while
+      // the user types. Cost is O(text before the caret), only on selection or key
+      // changes, never on scroll.
+      function trackActiveLine() {
+        const area = editorRef.current
+        if (!area) return
+        const caret = Math.min(area.selectionStart || 0, area.value.length)
+        let line = 1
+        for (let index = 0; index < caret; index += 1) {
+          if (area.value.charCodeAt(index) === 10) line += 1
+        }
+        if (line === activeLineRef.current) return
+        activeLineRef.current = line
+        positionActiveLine()
+      }
+
+      function alignCurrentMark(area) {
+        const mirror = mirrorRef.current
+        if (!mirror || !area) return
+        const mark = mirror.querySelector('mark.is-current')
+        if (!mark) return
+        const left = mark.offsetLeft
+        const width = mark.offsetWidth || 1
+        const viewLeft = area.scrollLeft
+        const viewWidth = area.clientWidth
+        if (left < viewLeft) area.scrollLeft = Math.max(0, left - 24)
+        else if (left + width > viewLeft + viewWidth - 24) area.scrollLeft = left + width - viewWidth + 24
+      }
+
+      function onEditorScroll(event) {
+        syncEditorScroll(event.currentTarget)
+      }
+
+      function focusFind() {
+        const input = findInputRef.current
+        if (!input) return
+        input.focus()
+        input.select()
+      }
+
+      function openFind() {
+        if (findOpen) {
+          focusFind()
+          return
+        }
+        setFindOpen(true)
+        setFindFocused(true)
+      }
+
+      function closeFind() {
+        setFindOpen(false)
+        setFindFocused(false)
+        const area = editorRef.current
+        if (area) area.focus()
+      }
+
+      function moveFind(delta) {
+        const total = findResult.hits.length
+        if (!total) return
+        setFindIndex((value) => (value + delta + total) % total)
+      }
+
+      function onFindKey(event) {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          event.stopPropagation()
+          closeFind()
+          return
+        }
+        if (event.key === 'Enter') {
+          event.preventDefault()
+          event.stopPropagation()
+          moveFind(event.shiftKey ? -1 : 1)
+        }
+      }
+
       function onEditorKey(event) {
-        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+        const primary = event.metaKey || event.ctrlKey
+        if (primary && event.key.toLowerCase() === 's') {
           event.preventDefault()
           event.stopPropagation()
           saveFile()
+          return
+        }
+        if (primary && event.key.toLowerCase() === 'f') {
+          event.preventDefault()
+          event.stopPropagation()
+          openFind()
+          return
+        }
+        // Escape closes in-file search before it means "back to search".
+        if (event.key === 'Escape' && findOpen) {
+          event.preventDefault()
+          event.stopPropagation()
+          closeFind()
         }
       }
 
@@ -1374,20 +1617,84 @@ window.__ModuleLoader__.load({
                 lineCount ? h('span', null, textOf(t, 'lines', { count: lineCount })) : null,
                 file && file.bytes ? h('span', null, bytesText(file.bytes)) : null,
                 h('span', null, 'UTF-8'))),
-            h('textarea', {
-              ref: editorRef,
-              className: 'dff-editor',
-              'data-dff-editor': 'true',
-              value: draft,
-              spellCheck: false,
-              wrap: 'off',
-              onChange: (event) => setDraft(event.target.value),
-              onKeyDown: onEditorKey,
-              'aria-label': file ? file.path : t('title'),
-            })),
+            h('div', { className: 'dff-code', 'data-dff-code': 'true' },
+              findOpen ? h('div', {
+                className: 'dff-find', 'data-dff-find': 'true', role: 'search',
+                onFocus: () => setFindFocused(true),
+                onBlur: (event) => {
+                  const next = event.relatedTarget
+                  if (next && event.currentTarget.contains(next)) return
+                  setFindFocused(false)
+                },
+              },
+                h('input', {
+                  ref: findInputRef,
+                  className: 'dff-find-input',
+                  type: 'text',
+                  value: findQuery,
+                  placeholder: t('findPlaceholder'),
+                  spellCheck: false,
+                  'aria-label': t('findPlaceholder'),
+                  'data-dff-find-input': 'true',
+                  onChange: (event) => { setFindQuery(event.target.value); setFindIndex(0) },
+                  onKeyDown: onFindKey,
+                }),
+                h('span', {
+                  className: 'dff-find-count',
+                  'data-dff-find-count': 'true',
+                  role: 'status',
+                  'aria-live': 'polite',
+                }, findQuery
+                  ? (findResult.hits.length
+                    ? String(findIndex + 1) + '/' + String(findResult.total) + (findResult.total > findResult.hits.length ? '+' : '')
+                    : t('findNoResult'))
+                  : ''),
+                h('button', {
+                  type: 'button', className: 'dff-find-btn', disabled: !findResult.hits.length,
+                  'aria-label': t('findPrev'), title: t('findPrev'),
+                  onClick: () => moveFind(-1),
+                }, h(ChevronIcon, { size: 13, className: 'dff-find-up' })),
+                h('button', {
+                  type: 'button', className: 'dff-find-btn', disabled: !findResult.hits.length,
+                  'aria-label': t('findNext'), title: t('findNext'),
+                  onClick: () => moveFind(1),
+                }, h(ChevronIcon, { size: 13 })),
+                h('button', {
+                  type: 'button', className: 'dff-find-btn dff-find-case', 'data-dff-find-case': 'true',
+                  'aria-pressed': findCase ? 'true' : 'false',
+                  'aria-label': t('findCase'), title: t('findCase'),
+                  onClick: () => { setFindCase((value) => !value); setFindIndex(0) },
+                }, 'Aa'),
+                h('button', {
+                  type: 'button', className: 'dff-find-btn',
+                  'aria-label': t('findClose'), title: t('findClose'),
+                  onClick: closeFind,
+                }, h(CloseIcon, { size: 13 }))) : null,
+              h('div', { className: 'dff-gutter', 'aria-hidden': 'true', style: { width: gutterWidth } },
+                h('div', { ref: markerRef, className: 'dff-line-marker' }),
+                h('pre', { ref: gutterRef, className: 'dff-gutter-inner', 'data-dff-gutter': 'true' }, gutterText)),
+              h('div', { className: 'dff-code-pane' },
+                mirrorOn ? h('pre', { className: 'dff-editor-mirror', 'aria-hidden': 'true' },
+                  h('code', { ref: mirrorRef, className: 'dff-editor-mirror-inner' }, mirrorNodes)) : null,
+                h('textarea', {
+                  ref: editorRef,
+                  className: mirrorOn ? 'dff-editor is-mirrored' : 'dff-editor',
+                  'data-dff-editor': 'true',
+                  value: draft,
+                  spellCheck: false,
+                  wrap: 'off',
+                  onChange: (event) => { setDraft(event.target.value); trackActiveLine() },
+                  onKeyDown: onEditorKey,
+                  onKeyUp: trackActiveLine,
+                  onSelect: trackActiveLine,
+                  onClick: trackActiveLine,
+                  onScroll: onEditorScroll,
+                  'aria-label': file ? file.path : t('title'),
+                })))),
           h('div', { className: 'dff-foot' },
             h('span', { className: 'dff-hints' },
               h('span', { className: 'dff-hint' }, h(Keycaps, { keys: mac ? ['⌘', 'S'] : ['Ctrl', 'S'] }), t('hintSave')),
+              h('span', { className: 'dff-hint' }, h(Keycaps, { keys: mac ? ['⌘', 'F'] : ['Ctrl', 'F'] }), t('hintFind')),
               h('span', { className: 'dff-hint' }, h(Keycaps, { keys: ['esc'] }), t('hintEditorBack'))),
             h('span', { className: 'dff-rootpath', title: file ? file.path : '' }, h(FolderIcon, { size: 12 }), h('span', { className: 'dff-rootpath-text' }, h('bdi', null, file ? parentOf(file.path) : '')))))
       }
@@ -1992,21 +2299,115 @@ window.__ModuleLoader__.load({
       }
       .dff-editor-path > bdi { direction: ltr; unicode-bidi: isolate; }
       .dff-editor-stats { display: inline-flex; align-items: center; gap: 10px; flex: none; font-variant-numeric: tabular-nums; }
-      .dff-editor {
-        flex: 1; min-height: 0; width: 100%; box-sizing: border-box;
-        margin: 0; padding: 14px 16px;
+      .dff-code {
+        position: relative; display: flex; flex: 1; min-height: 0;
         border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px;
-        outline: 0; resize: none;
         background: var(--dsw-alias-markdown-code-block);
-        color: var(--dsw-alias-label-primary);
-        font-family: var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-        font-size: 12.5px; line-height: 20px; tab-size: 2;
+        overflow: hidden;
         transition: border-color 160ms ease, box-shadow 180ms ease;
       }
-      .dff-editor:focus {
+      .dff-code:focus-within {
         border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 45%, transparent);
         box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-state-business-primary) 10%, transparent);
       }
+      .dff-gutter {
+        position: relative; flex: none; overflow: hidden;
+        padding: 14px 8px 14px 12px;
+        border-right: 1px solid var(--dsw-alias-border-l1);
+        color: var(--dsw-alias-label-tertiary);
+        font-family: var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+        font-size: 12.5px; line-height: 20px; tab-size: 2;
+        text-align: right; user-select: none;
+      }
+      .dff-gutter-inner {
+        margin: 0; padding: 0;
+        font: inherit; line-height: inherit; tab-size: inherit;
+        white-space: pre; will-change: transform;
+      }
+      .dff-line-marker {
+        position: absolute; left: 0; right: 0; top: 14px; height: 20px;
+        border-radius: 4px;
+        background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 9%, transparent);
+        opacity: 0; pointer-events: none;
+        transition: opacity 120ms ease;
+        will-change: transform;
+      }
+      .dff-code-pane { position: relative; flex: 1; min-width: 0; }
+      .dff-editor {
+        position: absolute; inset: 0; box-sizing: border-box;
+        width: 100%; height: 100%;
+        margin: 0; padding: 14px 16px;
+        border: 0; outline: 0; resize: none;
+        background: transparent;
+        color: var(--dsw-alias-label-primary);
+        font-family: var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+        font-size: 12.5px; line-height: 20px; tab-size: 2;
+      }
+      .dff-editor.is-mirrored { color: transparent; caret-color: var(--dsw-alias-label-primary); }
+      .dff-editor-mirror {
+        position: absolute; inset: 0; margin: 0; padding: 14px 16px;
+        overflow: hidden; pointer-events: none;
+        color: var(--dsw-alias-label-primary);
+        font-family: var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+        font-size: 12.5px; line-height: 20px; tab-size: 2;
+        white-space: pre;
+      }
+      .dff-editor-mirror-inner { display: block; font: inherit; line-height: inherit; will-change: transform; }
+      .dff-find-hit {
+        border-radius: 2px;
+        background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 20%, transparent);
+        color: inherit;
+      }
+      .dff-find-hit.is-current {
+        background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 42%, transparent);
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--dsw-alias-state-business-primary) 55%, transparent);
+      }
+      .dff-find {
+        position: absolute; z-index: 4; top: 8px; right: 10px;
+        display: flex; align-items: center; gap: 4px;
+        padding: 4px 5px 4px 6px;
+        border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px;
+        background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 94%, transparent);
+        -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+        box-shadow: 0 10px 28px -18px color-mix(in srgb, #0f1115 55%, transparent);
+        animation: dff-find-in 160ms cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+      @keyframes dff-find-in {
+        from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+        to { opacity: 1; transform: none; }
+      }
+      .dff-find-input {
+        width: 176px; height: 26px; padding: 0 8px;
+        border: 1px solid var(--dsw-alias-border-l2); border-radius: 7px;
+        background: var(--dsw-alias-bg-module-platform);
+        color: var(--dsw-alias-label-primary);
+        font: inherit; font-size: 12px; outline: 0;
+      }
+      .dff-find-input::placeholder { color: var(--dsw-alias-label-tertiary); }
+      .dff-find-input:focus {
+        border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 50%, transparent);
+      }
+      .dff-find-count {
+        min-width: 46px; padding: 0 2px; text-align: center;
+        color: var(--dsw-alias-label-caption);
+        font-size: 11px; line-height: 24px; font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+      .dff-find-btn {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 24px; height: 24px; padding: 0;
+        border: 0; border-radius: 6px; background: transparent;
+        color: var(--dsw-alias-label-secondary);
+        font: inherit; font-size: 11px; cursor: pointer;
+        transition: background-color 120ms ease, color 120ms ease;
+      }
+      .dff-find-btn:hover:not(:disabled) { background: var(--dsw-alias-bg-module-platform); color: var(--dsw-alias-label-primary); }
+      .dff-find-btn:disabled { opacity: 0.35; cursor: default; }
+      .dff-find-btn[aria-pressed="true"] {
+        background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, transparent);
+        color: var(--dsw-alias-state-business-primary);
+      }
+      .dff-find-up { transform: rotate(180deg); }
       .dff-editor::-webkit-scrollbar { width: 10px; height: 10px; }
       .dff-editor::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 10px; background-clip: content-box; background-color: var(--dsw-alias-scrollbar-bg-l1); }
       .dff-editor::-webkit-scrollbar-thumb:hover { background-color: var(--dsw-alias-scrollbar-hover-l1); }
@@ -2266,12 +2667,12 @@ window.__ModuleLoader__.load({
 
       @media (prefers-reduced-motion: reduce) {
         .dff-scrim, .dff-panel, .dff-view, .dff-result, .dff-card, .dff-menu, .dff-banner,
-        .dff-empty, .dff-msg, .dff-skeleton-row, .dff-spin, .dff-progress-bar,
+        .dff-empty, .dff-msg, .dff-skeleton-row, .dff-spin, .dff-progress-bar, .dff-find,
         .dff-editor-state[data-state="dirty"] .dff-dot {
           animation: none !important;
         }
         .dff-mode-pill, .dff-seg-pill, .dff-switch-knob, .dff-result-rail,
-        .dff-result-enter, .dff-result, .dff-autosave {
+        .dff-result-enter, .dff-result, .dff-autosave, .dff-find-btn, .dff-line-marker {
           transition-duration: 1ms !important;
         }
       }

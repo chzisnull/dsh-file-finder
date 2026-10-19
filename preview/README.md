@@ -32,6 +32,7 @@ Each run rewrites `preview/shots/`:
 | `palette-loading-{light,dark}.png` | 1440×900 @2x | pending request: skeleton + spinner |
 | `editor-{light,dark}.png` | 1440×900 @2x | built-in editor view |
 | `editor-dirty-{light,dark}.png` | 1440×900 @2x | unsaved draft + destructive-action confirm banner |
+| `editor-find-{light,dark}.png` | 1440×900 @2x | in-file find: query, match count, highlighted hits |
 | `settings-{light,dark}.png` | 1100×760 @2x | settings.section page (narrow) |
 | `settings-wide-{light,dark}.png` | 1440×900 @2x | settings.section page (wide) |
 | `settings-tall-{light,dark}.png` | 1100×1400 @2x | whole settings page for review (all cards + footer) |
@@ -187,6 +188,8 @@ preview/
   extract-theme.mjs real DSH token extractor → theme.css
   theme.css         generated DSH tokens + host typography
   screenshot.mjs     server + Playwright runner, validation, manifest, table
+  find-check.mjs     editor line-gutter + in-file find checks (`npm run check:find`)
+  bot-check.mjs      DS Bot bridge checks (`npm run check:bot`)
   vendor/           React 18.3.1 UMD builds
   shots/            generated screenshots + manifest.json
 ```
