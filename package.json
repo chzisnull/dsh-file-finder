@@ -1,7 +1,7 @@
 {
   "name": "dsh-file-finder",
-  "version": "0.1.1",
-  "description": "Search a DSH workspace by file name or file content, rebind the shortcuts, and edit text files inside DSH.",
+  "version": "0.2.0",
+  "description": "Search a DSH workspace by file name or content, open results in DSH's native preview, and edit text files when needed.",
   "license": "MIT",
   "type": "module",
   "icon": "./icon.svg",
@@ -22,7 +22,8 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test test/search.test.mjs"
+    "test": "node --test test/search.test.mjs test/boot-safety.test.mjs test/ui-contract.test.mjs",
+    "preview": "node preview/screenshot.mjs"
   },
   "dsh": {
     "bundle": {

@@ -1,0 +1,205 @@
+#!/usr/bin/env node
+/**
+ * Generates preview/theme.css from the *real* DSH theme bundle.
+ *
+ * DSH ships its design tokens as JavaScript string literals inside
+ * `@deepseek-ai/dsh-client-ui-theme/lib/client.js`. We do not copy a hand-made
+ * palette here: this script reads the installed bundle, pulls out the exact
+ * `design_platform_css_default` string (light + dark `body` blocks), the base
+ * font/easing tokens, the scrollbar tokens and the elevation tokens, and writes
+ * them to preview/theme.css before adding the host shell typography.
+ *
+ * Re-run automatically by preview/screenshot.mjs. Override the source with:
+ *   DSH_THEME_FILE=/path/to/dsh-client-ui-theme/lib/client.js node preview/extract-theme.mjs
+ */
+import { existsSync } from 'node:fs'
+import { readFile, writeFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import process from 'node:process'
+
+const HERE = dirname(fileURLToPath(import.meta.url))
+const OUTPUT = resolve(HERE, 'theme.css')
+const THEME_SUFFIX = 'node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-client-ui-theme/lib/client.js'
+const THEME_CANDIDATES = [
+  process.env.DSH_THEME_FILE,
+  join(homedir(), '.nvm/versions/node', process.version, 'lib', THEME_SUFFIX),
+  join('/usr/local/lib', THEME_SUFFIX),
+  join('/opt/homebrew/lib', THEME_SUFFIX),
+  join(HERE, '..', 'node_modules', '@deepseek-ai/dsh-client-ui-theme/lib/client.js'),
+].filter(Boolean)
+const THEME_FILE = THEME_CANDIDATES.find((candidate) => existsSync(candidate))
+if (!THEME_FILE) {
+  console.error(
+    'Cannot find the DSH theme bundle. Set DSH_THEME_FILE to ' +
+    '<dsh>/node_modules/@deepseek-ai/dsh-client-ui-theme/lib/client.js. Tried:\n  ' +
+    THEME_CANDIDATES.join('\n  '),
+  )
+  process.exit(1)
+}
+
+/**
+ * Read a `var <name> = "<js string>";` literal without evaluating the bundle.
+ * The CSS literals are JSON-compatible double-quoted strings (`\"` escapes
+ * included), so scanning to the unescaped closing quote plus JSON.parse is
+ * enough and avoids running third-party code.
+ */
+function readStringLiteral(source, name) {
+  const marker = `var ${name} = `
+  const start = source.indexOf(marker)
+  if (start < 0) throw new Error(`theme bundle does not define ${name}`)
+  const quote = source.indexOf('"', start + marker.length)
+  if (quote < 0) throw new Error(`could not find the string literal for ${name}`)
+  let end = quote + 1
+  while (end < source.length) {
+    const char = source[end]
+    if (char === '\\') { end += 2; continue }
+    if (char === '"') break
+    end += 1
+  }
+  if (end >= source.length) throw new Error(`unterminated string literal for ${name}`)
+  const raw = source.slice(quote, end + 1)
+  try {
+    return JSON.parse(raw)
+  } catch (error) {
+    throw new Error(`could not parse ${name} as a JS/JSON string: ${error.message}`)
+  }
+}
+
+/** Collect `body{...}` and `body[data-ds-dark-theme]{...}` declaration lists. */
+function collectBodyRules(css) {
+  const light = []
+  const dark = []
+  const rule = /(body(?:\[data-ds-dark-theme\])?)\s*\{([^}]*)\}/g
+  let match
+  while ((match = rule.exec(css)) !== null) {
+    const declarations = match[2]
+      .split(';')
+      .map((item) => item.trim())
+      .filter(Boolean)
+    if (match[1] === 'body') light.push(...declarations)
+    else dark.push(...declarations)
+  }
+  return { light, dark }
+}
+
+function tokensOf(declarations) {
+  return declarations.filter((item) => item.startsWith('--'))
+}
+
+function block(selector, declarations) {
+  const lines = declarations.map((item) => `  ${item};`).join('\n')
+  return `${selector} {\n${lines}\n}`
+}
+
+function countCustomProperties(css) {
+  return (css.match(/--[a-z0-9-]+\s*:/gi) || []).length
+}
+
+const bundle = await readFile(THEME_FILE, 'utf8')
+
+const baseCss = readStringLiteral(bundle, 'base_css_default')
+const designCss = readStringLiteral(bundle, 'design_platform_css_default')
+const scrollbarCss = readStringLiteral(bundle, 'scrollbar_css_default')
+const elevationCss = readStringLiteral(bundle, 'gradient_shadow_text_css_default')
+
+const design = collectBodyRules(designCss)
+if (!design.light.length || !design.dark.length) {
+  throw new Error('design_platform_css_default did not contain both light and dark body blocks')
+}
+const lightTokens = tokensOf(design.light)
+const darkTokens = tokensOf(design.dark)
+if (lightTokens.length < 150) throw new Error(`only ${lightTokens.length} light tokens were extracted; refusing to write a truncated theme`)
+if (Math.abs(lightTokens.length - darkTokens.length) > 10) {
+  throw new Error(`light (${lightTokens.length}) and dark (${darkTokens.length}) token counts disagree; the parser may be stale`)
+}
+
+const header = `/* ---------------------------------------------------------------------------
+ * DSH design tokens for the standalone preview harness.
+ *
+ * GENERATED by preview/extract-theme.mjs — do not edit by hand.
+ * Source: ${THEME_FILE}
+ *
+ * Section 1-4 are copied verbatim from the installed DSH theme bundle:
+ *   --dsw-static-*   primitive colours
+ *   --dsw-alias-*    semantic colours (light on body, dark on body[data-ds-dark-theme])
+ *   --dsw-shadow-*   elevation / shadow tokens
+ * Section 5 is preview-only host chrome (type ramp + document defaults) so the
+ * plugin is judged against the same 14px DSH base type and font stack.
+ * --------------------------------------------------------------------------- */
+
+`
+
+const host = `/* ---------------------------------------------------------------------------
+ * 5. Preview host chrome (preview only, not part of the plugin)
+ * --------------------------------------------------------------------------- */
+:root {
+  color-scheme: light;
+}
+html[data-preview-theme='dark'] {
+  color-scheme: dark;
+}
+html {
+  font-size: 14px;
+}
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  font-family: var(--dsw-font-family);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-primary);
+  background-color: var(--dsw-alias-bg-base);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+button {
+  cursor: pointer;
+}
+a {
+  color: var(--dsw-alias-link);
+}
+::selection {
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 18%, transparent);
+}
+`
+
+const output = [
+  header,
+  '/* 1. DSH base tokens: font stack, code font, easing */',
+  baseCss,
+  '',
+  '/* 2. DSH design platform tokens (exact light + dark palette) */',
+  block('body', design.light),
+  '',
+  block('body[data-ds-dark-theme]', design.dark),
+  '',
+  '/* 3. DSH scrollbar tokens and scrollbar styling */',
+  scrollbarCss,
+  '',
+  '/* 4. DSH elevation, shadow and gradient tokens */',
+  elevationCss,
+  '',
+  host,
+].join('\n')
+
+await writeFile(OUTPUT, output, 'utf8')
+
+console.log(
+  `[theme] wrote ${OUTPUT.replace(`${HERE}/`, '')} — ` +
+  `${lightTokens.length} light / ${darkTokens.length} dark tokens, ` +
+  `${countCustomProperties(output)} custom properties from ${THEME_FILE}`,
+)

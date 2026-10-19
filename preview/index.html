@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en" data-preview-surface="app">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>dsh-file-finder · visual preview</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23111'/%3E%3Ctext x='16' y='22' font-size='16' fill='%23fff' text-anchor='middle' font-family='sans-serif'%3ED%3C/text%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="./theme.css" />
+  <link rel="stylesheet" href="./harness.css" />
+  <script>
+    // Set the token theme before first paint so screenshots never catch a flash.
+    (function () {
+      try {
+        var query = new URLSearchParams(location.search);
+        var theme = query.get('theme') === 'dark' ? 'dark' : 'light';
+        document.documentElement.dataset.previewTheme = theme;
+        if (query.get('motion') !== 'on') document.documentElement.classList.add('preview-motion-off');
+      } catch (error) { /* URLSearchParams is always available in the harness */ }
+    })();
+    // Seed the plugin's persisted settings so the settings page shows realistic
+    // values instead of empty defaults. Runs before client.js reads localStorage.
+    // The editor state needs the built-in editor (the harness has no native
+    // sidebar-preview service); every other state keeps the real default.
+    (function () {
+      try {
+        var editorState = (location.hash || '') === '#editor' || (location.hash || '') === '#editor-dirty';
+        localStorage.setItem('dsh-file-finder.settings.v1', JSON.stringify({
+          caseSensitive: false,
+          extraIgnore: 'tmp, coverage',
+          nameLimit: 40,
+          contentLimit: 80,
+          openMode: editorState ? 'editor' : 'preview'
+        }));
+      } catch (error) { /* file:// or private mode */ }
+    })();
+  </script>
+</head>
+<body>
+  <!-- ------------------------------------------------------------------ -->
+  <!-- Imitation DSH app canvas: gives the overlay a realistic backdrop.  -->
+  <!-- ------------------------------------------------------------------ -->
+  <div id="app-shell" class="app-shell">
+    <aside class="app-sidebar" aria-hidden="true">
+      <div class="app-brand">
+        <span class="app-brand-mark">D</span>
+        <span class="app-brand-name">DeepSeek Harness</span>
+        <span class="app-brand-chevron">⌄</span>
+      </div>
+      <button class="app-new" type="button"><span class="app-new-plus">+</span>New session</button>
+      <nav class="app-nav">
+        <div class="app-nav-item is-active">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3.5 4.5h13v8.5h-7l-3.5 3v-3h-2.5z" stroke-linejoin="round"/></svg>
+          Sessions<span class="app-nav-count">3</span>
+        </div>
+        <div class="app-nav-item">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3.5 6.5h5l1.5 2h6.5v7h-13z" stroke-linejoin="round"/><path d="M3.5 6.5v-2h5l1.5 2" stroke-linejoin="round"/></svg>
+          Files
+        </div>
+        <div class="app-nav-item">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="10" r="6.2"/><path d="M10 6.5v4l2.5 1.5" stroke-linecap="round"/></svg>
+          Automations
+        </div>
+      </nav>
+      <div class="app-sidebar-label">Today</div>
+      <div class="app-session is-active"><span class="app-session-dot"></span><span class="app-session-name">File finder palette polish</span></div>
+      <div class="app-session"><span class="app-session-name">Search result ranking review</span></div>
+      <div class="app-session"><span class="app-session-name">Plugin settings copy pass</span></div>
+      <div class="app-sidebar-label">Plugins</div>
+      <div class="app-nav-item">
+        <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8.8" cy="8.8" r="4.6"/><path d="M12.2 12.2 16 16" stroke-linecap="round"/></svg>
+        File Finder<span class="app-badge">v0.1.1</span>
+      </div>
+      <div class="app-sidebar-foot">
+        <span class="app-avatar">C</span>
+        <span>you</span>
+        <span class="app-plan">Pro</span>
+      </div>
+    </aside>
+    <main class="app-main" aria-hidden="true">
+      <header class="app-titlebar">
+        <div class="app-title">File finder palette polish</div>
+        <div class="app-title-right">
+          <span class="app-model"><span class="app-model-dot"></span>DeepSeek V4</span>
+          <span class="app-icon-btn">…</span>
+        </div>
+      </header>
+      <div class="app-thread">
+        <div class="app-msg app-msg-user">
+          <div class="app-bubble">The palette still feels like a separate app. Can you make it use the DSH overlay tokens and tighten the empty and loading states?</div>
+        </div>
+        <div class="app-msg app-msg-assistant">
+          <span class="app-assistant-avatar">D</span>
+          <div class="app-assistant-body">
+            <p>On it. I’ll keep the command-palette layout, switch every surface to <code>--dsw-alias-*</code> tokens, and make the backdrop use the same mask as the rest of the shell.</p>
+            <p>I’ll also keep the editor footer quiet so the filename stays the strongest line.</p>
+            <div class="app-code">
+              <div class="app-code-title">preview/notes.md</div>
+              <pre>overlay → var(--dsw-alias-bg-overlay)
+border  → var(--dsw-alias-border-l1)
+shadow  → var(--dsw-shadow-lv3)</pre>
+            </div>
+          </div>
+        </div>
+        <div class="app-msg app-msg-user">
+          <div class="app-bubble">Good. Preview it in both themes before you hand it back.</div>
+        </div>
+      </div>
+      <div class="app-composer-wrap">
+        <div class="app-composer">
+          <div class="app-composer-placeholder">Ask anything, @ to mention, / for commands</div>
+          <div class="app-composer-row">
+            <span class="app-chip">Auto</span>
+            <span class="app-composer-right"><span class="app-icon-btn">＋</span><span class="app-send">↑</span></span>
+          </div>
+        </div>
+        <div class="app-composer-note">DeepSeek can make mistakes. Check important info.</div>
+      </div>
+    </main>
+  </div>
+
+  <!-- ------------------------------------------------------------------ -->
+  <!-- Imitation DSH settings page: host chrome for settings.section.      -->
+  <!-- ------------------------------------------------------------------ -->
+  <div id="settings-shell" class="settings-shell" hidden>
+    <header class="settings-topbar">
+      <div class="settings-topbar-title">Settings</div>
+      <div class="settings-topbar-right"><span class="settings-esc">esc</span><button class="settings-close" type="button" aria-label="Close">×</button></div>
+    </header>
+    <div class="settings-body">
+      <nav class="settings-nav" aria-label="Settings">
+        <div class="settings-nav-item">General</div>
+        <div class="settings-nav-item">Appearance</div>
+        <div class="settings-nav-item">Models</div>
+        <div class="settings-nav-item">Shortcuts</div>
+        <div class="settings-nav-item">Plugins</div>
+        <div class="settings-nav-label">Installed</div>
+        <div class="settings-nav-item is-active">File Finder</div>
+        <div class="settings-nav-item">Usage</div>
+        <div class="settings-nav-item">About</div>
+      </nav>
+      <div class="settings-content">
+        <div class="settings-content-inner" id="settings-mount"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="overlay-root"></div>
+  <div id="preview-error" hidden></div>
+
+  <script src="./vendor/react.development.js"></script>
+  <script src="./vendor/react-dom.development.js"></script>
+  <script src="./loader-shim.js"></script>
+  <!-- The plugin under review. Same origin as preview/, served from the repo root. -->
+  <script src="../client.js"></script>
+  <script src="./mount.js"></script>
+</body>
+</html>

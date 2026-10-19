@@ -1,2 +1,7 @@
 .DS_Store
 node_modules/
+
+# Dev-only preview harness: generated on demand by `node preview/screenshot.mjs`
+preview/vendor/
+preview/theme.css
+preview/shots/
