@@ -209,6 +209,7 @@ window.__ModuleLoader__.load({
       const ctx = props && props.ctx
       const t = props.t
       const request = useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot)
+      const prefsState = useSyncExternalStore(prefs.subscribe, prefs.snapshot, prefs.snapshot)
       const [view, setView] = useState('search')
       const [mode, setMode] = useState('name')
       const [query, setQuery] = useState('')
@@ -281,7 +282,19 @@ window.__ModuleLoader__.load({
           })
         }, 180)
         return () => clearTimeout(timer)
-      }, [request.open, view, mode, query, root, useSyncExternalStore(prefs.subscribe, () => prefs.revision, () => prefs.revision)])
+      }, [request.open, view, mode, query, root, prefsState])
+
+      useEffect(() => {
+        if (!request.open || view !== 'editor' || !editorRef.current || !file) return
+        const area = editorRef.current
+        const line = Math.max(1, file.line || 1)
+        const offset = file.text.split(/\r?\n/).slice(0, line - 1).join('\n').length
+        const start = line === 1 ? 0 : offset + 1
+        area.focus()
+        area.setSelectionRange(start, start)
+        const lineHeight = 20
+        area.scrollTop = Math.max(0, (line - 3) * lineHeight)
+      }, [request.open, view, file])
 
       const dirty = file && draft !== file.text
       const flat = useMemo(() => results.flatMap((item) => {
@@ -386,18 +399,6 @@ window.__ModuleLoader__.load({
           setView('search')
         }
       }
-
-      useEffect(() => {
-        if (view !== 'editor' || !editorRef.current || !file) return
-        const area = editorRef.current
-        const line = Math.max(1, file.line || 1)
-        const offset = file.text.split(/\r?\n/).slice(0, line - 1).join('\n').length
-        const start = line === 1 ? 0 : offset + 1
-        area.focus()
-        area.setSelectionRange(start, start)
-        const lineHeight = 20
-        area.scrollTop = Math.max(0, (line - 3) * lineHeight)
-      }, [view, file])
 
       return h('div', { className: 'dff-backdrop', onMouseDown: (event) => { if (event.target === event.currentTarget) closePanel() } },
         h('style', null, css),
