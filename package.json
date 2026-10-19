@@ -1,10 +1,22 @@
 {
   "name": "dsh-file-finder",
-  "version": "0.2.0",
-  "description": "Search a DSH workspace by file name or content, open results in DSH's native preview, and edit text files when needed.",
+  "version": "0.2.1",
+  "description": "File search palette for DSH: find workspace files by name or content, open them in DSH's native preview, and edit text files when needed.",
   "license": "MIT",
   "type": "module",
   "icon": "./icon.svg",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chzisnull/dsh-file-finder.git"
+  },
+  "homepage": "https://github.com/chzisnull/dsh-file-finder#readme",
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "dsh",
+    "file-search",
+    "command-palette"
+  ],
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
