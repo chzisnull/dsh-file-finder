@@ -112,8 +112,15 @@ window.__ModuleLoader__.load({
         store.listeners.add(listener)
         return () => store.listeners.delete(listener)
       },
+      lastOpenAt: 0,
       openSearch(mode) {
-        store.state = { open: true, mode: mode === 'content' ? 'content' : 'name', token: store.state.token + 1 }
+        const next = mode === 'content' ? 'content' : 'name'
+        // The keydown handler and a shortcut the user assigned in Settings can
+        // both fire for one keystroke; collapse the duplicate.
+        const now = Date.now()
+        if (store.state.open && store.state.mode === next && now - store.lastOpenAt < 250) return
+        store.lastOpenAt = now
+        store.state = { open: true, mode: next, token: store.state.token + 1 }
         store.listeners.forEach((listener) => listener())
       },
       close() {
@@ -194,18 +201,20 @@ window.__ModuleLoader__.load({
       return data
     }
 
-    function shortcut(id, label, aliases, binding, mode) {
+    // No default binding on purpose. DSH's shortcut registry rejects a command
+    // whose default collides with any other command's default for any runtime,
+    // and it does that from inside the *other* plugin's apply(), so a collision
+    // here breaks unrelated plugins (for example ui-workspace owns
+    // `session.fork` on Cmd+Shift+F, and its apply() throws while registering it).
+    // Registering the command unbound keeps it visible and assignable in
+    // Settings → Shortcuts without ever claiming a key from another plugin;
+    // the VS Code keys below come from our own keydown handler.
+    function shortcut(id, label, aliases, mode) {
       return {
         id,
         label,
         aliases,
-        defaults: {
-          'desktop:macos': binding,
-          'desktop:windows': binding,
-          'desktop:linux': binding,
-          'web:macos': binding,
-          'web:windows': binding,
-        },
+        defaults: {},
         regions: ['page', 'editable', 'terminal'],
         modals: [],
         resolve: () => ({ status: 'handled', run: () => store.openSearch(mode) }),
@@ -736,22 +745,16 @@ window.__ModuleLoader__.load({
                 return () => {}
               }
             }
-            // Web rejects a bare primary+KeyP, so the registered default carries Shift;
-            // the plain Cmd/Ctrl+P that people expect comes from the keydown handler.
-            const nameBinding = { code: 'KeyP', modifiers: ['primary', 'shift'] }
-            const contentBinding = { code: 'KeyF', modifiers: ['primary', 'shift'] }
             scoped.effect(() => register(shortcut(
               'files.searchName',
               () => t('shortcutName'),
               ['find file', 'go to file', 'quick open'],
-              nameBinding,
               'name',
             )))
             scoped.effect(() => register(shortcut(
               'files.searchContent',
               () => t('shortcutContent'),
               ['search file content', 'find in files'],
-              contentBinding,
               'content',
             )))
           })

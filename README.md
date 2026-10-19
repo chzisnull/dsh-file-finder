@@ -11,14 +11,14 @@ Chinese documentation: [README.zh.md](README.zh.md)
 
 ## Shortcuts
 
-The commands are registered with DSH's shortcut service, so saved overrides survive reloads and can be cleared from the shortcut reference.
+The commands are registered with DSH's shortcut service so you can assign your own keys in **Settings → Edit shortcuts**, but they declare **no default binding**. DSH's registry throws when one command's default overlaps another's, and it throws from inside the *other* plugin's `apply()`, so claiming Cmd+Shift+F here took the whole Web UI boot down (`Conflicting shortcut defaults: session.fork and files.searchContent`). The VS Code keys below are served by this plugin's own keydown handler instead.
 
-| Action | Desktop default | Web default |
-| --- | --- | --- |
-| Search by file name | Cmd/Ctrl+P | Cmd/Ctrl+P |
-| Search by content | Cmd/Ctrl+Shift+F | Cmd/Ctrl+Shift+F |
+| Action | Default keys |
+| --- | --- |
+| Search by file name | Cmd/Ctrl+P |
+| Search by content | Cmd/Ctrl+Shift+F |
 
-These match VS Code: Cmd/Ctrl+P opens files by name, and Cmd/Ctrl+Shift+F searches file contents. Change them in Settings → Edit shortcuts. The File Finder page is in Settings.
+These match VS Code. Note that Cmd+Shift+F is DSH's own "fork session" binding; this plugin uses it for content search, so rebind `session.fork` in **Settings → Edit shortcuts** if you relied on it. The File Finder page is in Settings.
 
 ## Editing
 

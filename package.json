@@ -1,6 +1,6 @@
 {
   "name": "dsh-file-finder",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Search a DSH workspace by file name or file content, rebind the shortcuts, and edit text files inside DSH.",
   "license": "MIT",
   "type": "module",
