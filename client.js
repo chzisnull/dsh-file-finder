@@ -1027,7 +1027,16 @@ window.__ModuleLoader__.load({
       }, [request.open, view, selected])
 
       const dirty = Boolean(file && draft !== file.text)
-      const lineCount = useMemo(() => (file ? draft.split(/\r?\n/).length : 0), [file, draft])
+      // Count newlines instead of splitting: the gutter needs the number, not
+      // 30k line strings on every keystroke of a large file.
+      const lineCount = useMemo(() => {
+        if (!file) return 0
+        let count = 1
+        for (let index = 0; index < draft.length; index += 1) {
+          if (draft.charCodeAt(index) === 10) count += 1
+        }
+        return count
+      }, [file, draft])
       const findResult = useMemo(
         () => findEditorMatches(draft, findQuery, findCase),
         [draft, findQuery, findCase],
