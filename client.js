@@ -196,7 +196,7 @@ window.__ModuleLoader__.load({
     }
 
     function onVsCodeKey(event) {
-      if (event.repeat || event.isComposing || event.altKey || !isPrimary(event)) return
+      if (event.defaultPrevented || event.repeat || event.isComposing || event.altKey || !isPrimary(event)) return
       const nameSearch = event.code === 'KeyP' && !event.shiftKey
       const contentSearch = event.code === 'KeyF' && event.shiftKey
       if (!nameSearch && !contentSearch) return
@@ -629,7 +629,9 @@ window.__ModuleLoader__.load({
                 return () => {}
               }
             }
-            const nameBinding = { code: 'KeyP', modifiers: ['primary'] }
+            // Web rejects a bare primary+KeyP, so the registered default carries Shift;
+            // the plain Cmd/Ctrl+P that people expect comes from the keydown handler.
+            const nameBinding = { code: 'KeyP', modifiers: ['primary', 'shift'] }
             const contentBinding = { code: 'KeyF', modifiers: ['primary', 'shift'] }
             scoped.effect(() => register(shortcut(
               'files.searchName',
