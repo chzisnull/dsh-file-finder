@@ -34,11 +34,11 @@ window.__ModuleLoader__.load({
         settingsLead: '按文件名或文件内容搜索当前工作区，并在 DSH 里编辑文本文件。',
         settingsShortcuts: '快捷键',
         settingsSearch: '搜索',
-        settingsBody: '快捷键可以在「设置 → 编辑快捷键」里修改、清空或恢复默认。桌面版默认是 Shift+⌘/Ctrl+P 与 Shift+⌘/Ctrl+F；网页版默认是 Shift+⌘/Ctrl+P 与 Alt+⌘/Ctrl+F。',
+        settingsBody: '和 VS Code 一样：⌘/Ctrl+P 按文件名搜索，⇧⌘F / Ctrl+Shift+F 按内容搜索。也可以在「设置 → 编辑快捷键」里修改。',
         shortcutName: '按文件名搜索',
         shortcutContent: '按内容搜索',
-        shortcutNameKeys: 'Shift+⌘/Ctrl+P',
-        shortcutContentKeys: '桌面 Shift+⌘/Ctrl+F，网页 Alt+⌘/Ctrl+F',
+        shortcutNameKeys: '⌘P / Ctrl+P',
+        shortcutContentKeys: '⇧⌘F / Ctrl+Shift+F',
         caseSensitive: '区分大小写',
         caseSensitiveHint: '关闭时，文件名和内容都不区分大小写。',
         extraIgnore: '额外忽略的目录',
@@ -76,11 +76,11 @@ window.__ModuleLoader__.load({
         settingsLead: 'Search the current workspace by file name or content, and edit text files inside DSH.',
         settingsShortcuts: 'Shortcuts',
         settingsSearch: 'Search',
-        settingsBody: 'Change, clear, or restore shortcuts in Settings → Edit shortcuts. Desktop defaults are Shift+Cmd/Ctrl+P and Shift+Cmd/Ctrl+F. Web defaults are Shift+Cmd/Ctrl+P and Alt+Cmd/Ctrl+F.',
+        settingsBody: 'Same as VS Code: Cmd/Ctrl+P searches by file name, and Cmd/Ctrl+Shift+F searches by content. You can still change them in Settings → Edit shortcuts.',
         shortcutName: 'Search files by name',
         shortcutContent: 'Search files by content',
-        shortcutNameKeys: 'Shift+Cmd/Ctrl+P',
-        shortcutContentKeys: 'Desktop Shift+Cmd/Ctrl+F, Web Alt+Cmd/Ctrl+F',
+        shortcutNameKeys: 'Cmd/Ctrl+P',
+        shortcutContentKeys: 'Cmd/Ctrl+Shift+F',
         caseSensitive: 'Case sensitive',
         caseSensitiveHint: 'When off, name and content search ignore case.',
         extraIgnore: 'Extra ignored directories',
@@ -173,22 +173,36 @@ window.__ModuleLoader__.load({
       return data
     }
 
-    function shortcut(id, label, aliases, desktop, web, mode) {
+    function shortcut(id, label, aliases, binding, mode) {
       return {
         id,
         label,
         aliases,
         defaults: {
-          'desktop:macos': desktop,
-          'desktop:windows': desktop,
-          'desktop:linux': desktop,
-          'web:macos': web,
-          'web:windows': web,
+          'desktop:macos': binding,
+          'desktop:windows': binding,
+          'desktop:linux': binding,
+          'web:macos': binding,
+          'web:windows': binding,
         },
-        regions: ['page', 'editable'],
+        regions: ['page', 'editable', 'terminal'],
         modals: [],
         resolve: () => ({ status: 'handled', run: () => store.openSearch(mode) }),
       }
+    }
+
+    function isPrimary(event) {
+      return event.metaKey || event.ctrlKey
+    }
+
+    function onVsCodeKey(event) {
+      if (event.repeat || event.isComposing || event.altKey || !isPrimary(event)) return
+      const nameSearch = event.code === 'KeyP' && !event.shiftKey
+      const contentSearch = event.code === 'KeyF' && event.shiftKey
+      if (!nameSearch && !contentSearch) return
+      event.preventDefault()
+      event.stopPropagation()
+      store.openSearch(nameSearch ? 'name' : 'content')
     }
 
     function Palette(props) {
@@ -482,16 +496,6 @@ window.__ModuleLoader__.load({
       return slash <= 0 ? normalized : normalized.slice(0, slash)
     }
 
-    function FooterButton(props) {
-      return h('button', {
-        type: 'button',
-        className: 'dff-footer',
-        title: props.t('footer'),
-        'aria-label': props.t('footer'),
-        onClick: () => store.openSearch('name'),
-      }, h('style', null, css), '⌕')
-    }
-
     function SettingsPage(props) {
       const t = props.t
       const current = useSyncExternalStore(prefs.subscribe, prefs.snapshot, prefs.snapshot)
@@ -593,7 +597,6 @@ window.__ModuleLoader__.load({
       .dff-badge.is-dirty { color: var(--dsw-alias-state-warn-primary); }
       .dff-danger { color: var(--dsw-alias-state-error-primary); }
       .dff-editor { flex: 1; min-height: 240px; margin: 12px 14px 14px; padding: 12px; resize: none; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; line-height: 20px; }
-      .dff-footer { width: 32px; height: 32px; padding: 0; font-size: 16px; cursor: pointer; }
       .dff-page { display: flex; flex-direction: column; gap: 18px; max-width: 640px; color: var(--dsw-alias-label-primary); }
       .dff-page-title { margin: 0; font-size: 20px; font-weight: 600; }
       .dff-page-lead, .dff-page-hint, .dff-page small { color: var(--dsw-alias-label-secondary); }
@@ -626,33 +629,33 @@ window.__ModuleLoader__.load({
                 return () => {}
               }
             }
+            const nameBinding = { code: 'KeyP', modifiers: ['primary'] }
+            const contentBinding = { code: 'KeyF', modifiers: ['primary', 'shift'] }
             scoped.effect(() => register(shortcut(
               'files.searchName',
               () => t('shortcutName'),
-              ['find file', 'go to file', 'search file name'],
-              { code: 'KeyP', modifiers: ['primary', 'shift'] },
-              { code: 'KeyP', modifiers: ['primary', 'shift'] },
+              ['find file', 'go to file', 'quick open'],
+              nameBinding,
               'name',
             )))
             scoped.effect(() => register(shortcut(
               'files.searchContent',
               () => t('shortcutContent'),
               ['search file content', 'find in files'],
-              { code: 'KeyF', modifiers: ['primary', 'shift'] },
-              { code: 'KeyF', modifiers: ['primary', 'alt'] },
+              contentBinding,
               'content',
             )))
           })
         }
+        ctx.effect(() => {
+          document.addEventListener('keydown', onVsCodeKey, true)
+          return () => document.removeEventListener('keydown', onVsCodeKey, true)
+        })
         const Search = bound(Palette, t)
-        const Foot = bound(FooterButton, t)
         const Settings = bound(SettingsPage, t)
         ctx.slots.inject('shell.overlay', () => ctx.slots.register({
           name: 'shell.overlay', id: 'file-finder', order: 40,
         }, (props) => h(Search, { ...props, ctx })))
-        ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
-          name: 'sidebar.footer.action', id: 'file-finder', order: 20, label: () => t('footer'),
-        }, Foot))
         ctx.slots.inject('settings.section', () => ctx.slots.register({
           name: 'settings.section', id: 'file-finder', order: 18, label: () => t('settingsTitle'),
         }, Settings))

@@ -15,12 +15,10 @@ The commands are registered with DSH's shortcut service, so saved overrides surv
 
 | Action | Desktop default | Web default |
 | --- | --- | --- |
-| Search by file name | Shift+Cmd/Ctrl+P | Shift+Cmd/Ctrl+P |
-| Search by content | Shift+Cmd/Ctrl+F | Alt+Cmd/Ctrl+F |
+| Search by file name | Cmd/Ctrl+P | Cmd/Ctrl+P |
+| Search by content | Cmd/Ctrl+Shift+F | Cmd/Ctrl+Shift+F |
 
-Linux Web has no default binding, because that profile only accepts a small set of browser-delivered combinations. Bind it from the shortcut reference. Cmd+P remains DSH's file tree.
-
-There is a find button at the sidebar foot, and a File Finder page in Settings.
+These match VS Code: Cmd/Ctrl+P opens files by name, and Cmd/Ctrl+Shift+F searches file contents. Change them in Settings → Edit shortcuts. The File Finder page is in Settings.
 
 ## Editing
 
