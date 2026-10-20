@@ -2962,10 +2962,10 @@ window.__ModuleLoader__.load({
                 h('pre', { ref: gutterRef, className: 'dff-gutter-inner', 'data-dff-gutter': 'true' }, gutterText)),
               h('div', { className: 'dff-code-pane' },
                 tokenPainted ? h('pre', {
-                  className: 'dff-token-layer', 'aria-hidden': 'true', ref: tokenLayerRef,
+                  className: 'dff-token-layer', 'aria-hidden': 'true',
                   'data-dff-token-layer': 'true',
                 },
-                  h('code', { className: 'dff-token-inner' }, tokenSegments.map((segment, index) => (
+                  h('code', { ref: tokenLayerRef, className: 'dff-token-inner' }, tokenSegments.map((segment, index) => (
                     segment.type
                       ? h('span', {
                         key: 'c' + String(index),

@@ -292,6 +292,15 @@
         firstStart + ' of ' + longArea.value.length)
       check('the layer still covers the whole file after scrolling',
         text(document.querySelector('[data-dff-token-layer]')) === longArea.value)
+      // Regression guard: the scroll transform must live on the inner block, or
+      // the layer's own overflow clip hides every line below the first viewport.
+      var deep = document.querySelectorAll('[data-dff-token-layer] [data-tok]')
+      var deepest = deep[deep.length - 1]
+      var pane = document.querySelector('.dff-code-pane').getBoundingClientRect()
+      var box = deepest ? deepest.getBoundingClientRect() : null
+      check('scrolled tokens sit inside the visible pane',
+        Boolean(box) && box.height > 0 && box.top >= pane.top - 2 && box.bottom <= pane.bottom + 2,
+        box ? Math.round(box.top) + '..' + Math.round(box.bottom) + ' in ' + Math.round(pane.top) + '..' + Math.round(pane.bottom) : 'no span')
 
       // ── Over budget: degrade to plain text ──────────────────────────────
       await openFile('huge.ts')
