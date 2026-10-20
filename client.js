@@ -784,7 +784,9 @@ window.__ModuleLoader__.load({
       if (extension === 'rs') return 'rust'
       if (/^(?:java|kt|kts|cs|scala|swift)$/.test(extension)) return 'clike'
       if (/^(?:c|h|cpp|cc|cxx|hpp|hxx|m|mm)$/.test(extension)) return 'clike'
-      if (/^(?:html?|xhtml|xml|svg|vue|svelte)$/.test(extension)) return 'markup'
+      if (extension === 'vue') return 'vue'
+      if (extension === 'svelte') return 'svelte'
+      if (/^(?:html?|xhtml|xml|svg)$/.test(extension)) return 'markup'
       if (/^(?:css|scss|sass|less)$/.test(extension)) return 'css'
       if (/^(?:json|jsonc|json5|webmanifest)$/.test(extension)) return 'json'
       if (/^(?:ya?ml)$/.test(extension)) return 'yaml'
@@ -963,7 +965,38 @@ window.__ModuleLoader__.load({
       return tokens
     }
 
-    function scanMarkupTokens(text) {
+    function pushShiftedTokens(target, tokens, offset) {
+      for (const token of tokens) {
+        target.push({ start: token.start + offset, end: token.end + offset, type: token.type })
+      }
+    }
+
+    // `{...}` in a Svelte template can nest and contain strings, so find the
+    // matching brace instead of the next one.
+    function findMatchingBrace(text, start) {
+      let depth = 0
+      let index = start
+      while (index < text.length) {
+        const char = text[index]
+        if (char === '"' || char === "'" || char === '`') {
+          index = scanStringEnd(text, index, char, char === '`')
+          continue
+        }
+        if (char === '{') {
+          depth += 1
+        } else if (char === '}') {
+          depth -= 1
+          if (depth === 0) return index
+        }
+        index += 1
+      }
+      return -1
+    }
+
+    // Markup plus the languages that hide inside it: <script> runs the script
+    // scanner, <style> the CSS one, and Vue `{{ }}` / directive values and
+    // Svelte `{ }` run the script scanner on their expressions.
+    function scanMarkupTokens(text, framework) {
       const tokens = []
       const total = text.length
       let index = 0
@@ -976,10 +1009,15 @@ window.__ModuleLoader__.load({
           continue
         }
         if (text[index] === '<' && (isIdentStartCode(codeAt(text, index + 1)) || text[index + 1] === '/')) {
+          const openStart = index
           let cursor = index + 1
-          if (text[cursor] === '/') cursor += 1
+          const closing = text[cursor] === '/'
+          if (closing) cursor += 1
+          const nameStart = cursor
           while (cursor < total && (isIdentPartCode(text.charCodeAt(cursor)) || text[cursor] === '-' || text[cursor] === ':' || text[cursor] === '.')) cursor += 1
-          tokens.push({ start: index, end: cursor, type: 'tag' })
+          const tagName = text.slice(nameStart, cursor).toLowerCase()
+          tokens.push({ start: openStart, end: cursor, type: 'tag' })
+          let selfClosing = false
           while (cursor < total) {
             const code = text.charCodeAt(cursor)
             if (isSpaceCode(code)) {
@@ -987,6 +1025,7 @@ window.__ModuleLoader__.load({
               continue
             }
             if (text[cursor] === '>') {
+              selfClosing = text[cursor - 1] === '/'
               cursor += 1
               break
             }
@@ -1002,15 +1041,82 @@ window.__ModuleLoader__.load({
             }
             if (isIdentStartCode(code)) {
               let stop = cursor + 1
-              while (stop < total && (isIdentPartCode(text.charCodeAt(stop)) || text[stop] === '-' || text[stop] === ':')) stop += 1
+              while (stop < total && (isIdentPartCode(text.charCodeAt(stop)) || text[stop] === '-' || text[stop] === ':' || text[stop] === '.' || text[stop] === '@')) stop += 1
+              const attribute = text.slice(cursor, stop)
               tokens.push({ start: cursor, end: stop, type: 'attr' })
+              let look = stop
+              while (look < total && isSpaceCode(text.charCodeAt(look))) look += 1
+              if (text[look] === '=') {
+                let valueStart = look + 1
+                while (valueStart < total && isSpaceCode(text.charCodeAt(valueStart))) valueStart += 1
+                if (text[valueStart] === '"' || text[valueStart] === "'") {
+                  const quote = text[valueStart]
+                  const stopAt = scanStringEnd(text, valueStart, quote, false)
+                  const innerEnd = stopAt > valueStart + 1 && text[stopAt - 1] === quote ? stopAt - 1 : stopAt
+                  const directive = attribute[0] === ':' || attribute[0] === '@' || attribute[0] === '#'
+                    || attribute.startsWith('v-') || attribute.startsWith('on:')
+                  if (directive) {
+                    pushShiftedTokens(tokens, scanScriptTokens(text.slice(valueStart + 1, innerEnd), TOKEN_SPECS.js), valueStart + 1)
+                  } else {
+                    tokens.push({ start: valueStart, end: stopAt, type: 'string' })
+                  }
+                  cursor = stopAt
+                  continue
+                }
+                if (framework === 'svelte' && text[valueStart] === '{') {
+                  const brace = findMatchingBrace(text, valueStart)
+                  if (brace > valueStart) {
+                    pushShiftedTokens(tokens, scanScriptTokens(text.slice(valueStart + 1, brace), TOKEN_SPECS.js), valueStart + 1)
+                    cursor = brace + 1
+                    continue
+                  }
+                }
+                cursor = stop
+                continue
+              }
               cursor = stop
               continue
             }
             cursor += 1
           }
+          const openTag = text.slice(openStart, cursor)
           index = cursor
+          if (!closing && !selfClosing && (tagName === 'script' || tagName === 'style')) {
+            const closePattern = new RegExp('</' + tagName + '\\s*>', 'ig')
+            closePattern.lastIndex = index
+            const close = closePattern.exec(text)
+            const bodyEnd = close ? close.index : total
+            if (bodyEnd > index) {
+              const inner = text.slice(index, bodyEnd)
+              const innerTokens = tagName === 'style'
+                ? scanCssTokens(inner)
+                : scanScriptTokens(inner, TOKEN_SPECS.js)
+              pushShiftedTokens(tokens, innerTokens, index)
+            }
+            index = bodyEnd
+            if (close) {
+              tokens.push({ start: bodyEnd, end: bodyEnd + close[0].length, type: 'tag' })
+              index = bodyEnd + close[0].length
+            }
+            continue
+          }
           continue
+        }
+        if (framework === 'vue' && text.startsWith('{{', index)) {
+          const close = text.indexOf('}}', index + 2)
+          if (close > index + 2) {
+            pushShiftedTokens(tokens, scanScriptTokens(text.slice(index + 2, close), TOKEN_SPECS.js), index + 2)
+            index = close + 2
+            continue
+          }
+        }
+        if (framework === 'svelte' && text[index] === '{') {
+          const close = findMatchingBrace(text, index)
+          if (close > index + 1) {
+            pushShiftedTokens(tokens, scanScriptTokens(text.slice(index + 1, close), TOKEN_SPECS.js), index + 1)
+            index = close + 1
+            continue
+          }
         }
         index += 1
       }
@@ -1191,6 +1297,16 @@ window.__ModuleLoader__.load({
       return tokens
     }
 
+    const FENCE_LANGUAGES = {
+      js: 'js', javascript: 'js', jsx: 'js', ts: 'js', typescript: 'js', tsx: 'js', mjs: 'js', cjs: 'js',
+      html: 'markup', htm: 'markup', xml: 'markup', svg: 'markup', vue: 'vue', svelte: 'svelte',
+      css: 'css', scss: 'css', sass: 'css', less: 'css',
+      json: 'json', jsonc: 'json', yaml: 'yaml', yml: 'yaml',
+      py: 'python', python: 'python', go: 'go', rust: 'rust', rs: 'rust',
+      sh: 'shell', bash: 'shell', shell: 'shell', zsh: 'shell',
+      ini: 'ini', toml: 'ini',
+    }
+
     function scanMarkdownTokens(text) {
       const tokens = []
       const total = text.length
@@ -1201,9 +1317,15 @@ window.__ModuleLoader__.load({
           const fence = text.indexOf('\n', index)
           const opening = fence < 0 ? total : fence
           tokens.push({ start: index, end: opening, type: 'comment' })
-          let cursor = fence < 0 ? total : fence + 1
+          const info = text.slice(index + 3, opening).trim().split(/\s+/)[0].toLowerCase()
+          const cursor = fence < 0 ? total : fence + 1
           const close = text.indexOf('\n```', cursor)
           const bodyEnd = close < 0 ? total : close + 1
+          // A fenced block that names a language is scanned with that language.
+          const fenceLanguage = FENCE_LANGUAGES[info]
+          if (fenceLanguage && bodyEnd > cursor) {
+            pushShiftedTokens(tokens, scanTokens(text.slice(cursor, bodyEnd), fenceLanguage), cursor)
+          }
           index = bodyEnd
           if (close < 0) break
           tokens.push({ start: close + 1, end: Math.min(total, close + 4), type: 'comment' })
@@ -1302,7 +1424,9 @@ window.__ModuleLoader__.load({
 
     function scanTokens(text, language) {
       if (!language) return []
-      if (language === 'markup') return scanMarkupTokens(text)
+      if (language === 'markup') return scanMarkupTokens(text, 'html')
+      if (language === 'vue') return scanMarkupTokens(text, 'vue')
+      if (language === 'svelte') return scanMarkupTokens(text, 'svelte')
       if (language === 'css') return scanCssTokens(text)
       if (language === 'json') return scanJsonTokens(text)
       if (language === 'yaml') return scanYamlTokens(text)

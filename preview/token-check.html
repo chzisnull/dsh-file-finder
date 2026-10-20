@@ -72,6 +72,40 @@
       '    return total',
       '',
     ].join('\n')
+    var VUE = [
+      '<template>',
+      '  <div class="wrap">',
+      '    <span>{{ formatDate(row.createdAt) }}</span>',
+      '    <el-button @click="openDialog(row)">{{ row.title }}</el-button>',
+      '  </div>',
+      '</template>',
+      '',
+      '<script setup lang="ts">',
+      "import { ref } from 'vue'",
+      '',
+      'const rows = ref([])',
+      'const isActive = ref(true)',
+      'const label: string = `Dialog ${row.id}`',
+      '',
+      'function openDialog(row: { id: number }) {',
+      '  return label + row.id',
+      '}',
+      '<\/script>',
+      '',
+      '<style scoped>',
+      '.wrap { display: flex; gap: 8px; }',
+      '</style>',
+      '',
+    ].join('\n')
+    var SVELTE = [
+      '<script>',
+      '  let count = 0',
+      '  function increment() { count += 1 }',
+      '<\/script>',
+      '',
+      '<button on:click={increment}>{count}</button>',
+      '',
+    ].join('\n')
     var PLAIN = 'just a note\nnothing to colour here\n'
     // Over the 200 KB colour budget: 6000 lines of ≈46 characters.
     var HUGE = []
@@ -94,6 +128,8 @@
       '/ws/style.css': { kind: 'text', text: CSS, bytes: CSS.length },
       '/ws/data.json': { kind: 'text', text: JSON_TEXT, bytes: JSON_TEXT.length },
       '/ws/notes.md': { kind: 'text', text: MD, bytes: MD.length },
+      '/ws/App.vue': { kind: 'text', text: VUE, bytes: VUE.length },
+      '/ws/App.svelte': { kind: 'text', text: SVELTE, bytes: SVELTE.length },
       '/ws/app.py': { kind: 'text', text: PYTHON, bytes: PYTHON.length },
       '/ws/plain.txt': { kind: 'text', text: PLAIN, bytes: PLAIN.length },
       '/ws/long.ts': { kind: 'text', text: LONG, bytes: LONG.length },
@@ -205,6 +241,14 @@
       return document.querySelector('[data-dff-token-layer] [data-tok="' + type + '"]')
     }
 
+    function findSpan(value, type) {
+      var nodes = document.querySelectorAll('[data-dff-token-layer] [data-tok]')
+      for (var index = 0; index < nodes.length; index += 1) {
+        if (nodes[index].textContent === value && (!type || nodes[index].getAttribute('data-tok') === type)) return nodes[index]
+      }
+      return null
+    }
+
     function colourOf(node) {
       return node ? getComputedStyle(node).color : ''
     }
@@ -270,6 +314,33 @@
       await openFile('notes.md')
       await waitFor(function () { return firstSpan('keyword') }, 4000)
       check('markdown headings are coloured', Boolean(firstSpan('keyword')))
+      check('fenced code is coloured by its language', Boolean(findSpan('const', 'keyword')),
+        Document ? 'const → ' + (findSpan('const', 'keyword') ? 'keyword' : 'plain') : '')
+
+      // ── Vue / Svelte: template, script, style and expressions ───────────
+      await openFile('App.vue')
+      await waitFor(function () { return firstSpan('tag') }, 4000)
+      check('vue template tags are coloured', Boolean(firstSpan('tag')))
+      check('vue script keywords are coloured', Boolean(findSpan('function', 'keyword')))
+      check('vue script methods are coloured', Boolean(findSpan('openDialog', 'function')))
+      check('vue script types are coloured', Boolean(findSpan('string', 'type')))
+      check('vue template expressions are coloured', Boolean(findSpan('formatDate', 'function')),
+        String(findSpan('formatDate', 'function') ? 'function' : 'plain'))
+      check('vue directive values are coloured', (function () {
+        var nodes = document.querySelectorAll('[data-dff-token-layer] [data-tok="function"]')
+        for (var index = 0; index < nodes.length; index += 1) {
+          if (nodes[index].textContent === 'openDialog') return true
+        }
+        return false
+      })())
+      check('vue style blocks are coloured as css', Boolean(findSpan('display', 'property')) ||
+        Boolean(findSpan('display', 'plain')), 'display')
+      check('vue style properties are coloured', Boolean(findSpan('display', 'property')))
+
+      await openFile('App.svelte')
+      await waitFor(function () { return firstSpan('tag') }, 4000)
+      check('svelte script is coloured', Boolean(findSpan('function', 'keyword')))
+      check('svelte expressions are coloured', Boolean(findSpan('increment', 'function')))
 
       // ── Unsupported extension ───────────────────────────────────────────
       await openFile('plain.txt')

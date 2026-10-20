@@ -141,6 +141,12 @@ test('the editor colours syntax without giving up the textarea', () => {
   assert.match(source, /function colorLanguageOf\(/)
   assert.match(source, /function scanTokens\(/)
   assert.match(source, /const TOKEN_SPECS = \{/)
+  // Markup files colour what hides inside them.
+  assert.match(source, /function scanMarkupTokens\(text, framework\)/)
+  assert.match(source, /scanMarkupTokens\(text, 'vue'\)/)
+  assert.match(source, /scanMarkupTokens\(text, 'svelte'\)/)
+  assert.match(source, /const FENCE_LANGUAGES = \{/)
+  assert.match(source, /function findMatchingBrace\(/)
   assert.match(source, /function measureTokenWindow\(/)
   assert.match(source, /data-dff-token-layer/)
   assert.match(source, /data-dff-plain/)
