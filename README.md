@@ -6,7 +6,7 @@ A DeepSeek Harness plugin for finding workspace files without leaving DSH: searc
 
 ## What it does
 
-- **Browse when there is nothing to search**: with an empty query the palette lists the current workspace directory — folders first, then files — and you can walk into a folder (Enter or →), go back up (Backspace) or jump with the breadcrumb. Typing switches to the normal search, and clearing the query returns to the folder you were browsing.
+- **Browse when there is nothing to search**: with an empty query the palette lists the current workspace directory — folders first, then files — and you can walk into a folder (Enter or →), go back up (Backspace) or jump with the breadcrumb. Typing switches to the normal search, and clearing the query returns to the folder you were browsing. **Escape** walks back one screen at a time: from a viewer or the editor to the folder you opened it from, then up through the folders, and only then closes the panel.
 - **Search by file name**, including a path fragment such as `src/view`.
 - **Search by content**, with one result row per matching line.
 - **Open natively**: Enter opens the file in DSH's right-sidebar document preview, the same surface the Files tab uses, and jumps to the matching line for content hits.
@@ -66,6 +66,8 @@ Without DS Bot nothing is registered or shown: the command never reaches **Setti
 ## Editing
 
 Choose a result and press Cmd/Ctrl+Enter (or set the built-in editor as the default action). Save writes the full text back through the workspace filesystem and refuses to overwrite a file that changed after it was loaded. Reload, then save again, to take the newer version. The editor is for UTF-8 text under about 1 MB. Binary files and common build or dependency directories are skipped.
+
+Escape in the viewer returns to the folder you opened the file from; the same key works while a previewed HTML page has focus, because the host injects a small Escape forwarder into the served document.
 
 Files that are not text open in the built-in viewer instead: images, video and audio render inline (byte ranges, so video seeking works), PDFs open in the platform frame, HTML pages run in a sandboxed iframe whose scripts cannot reach DSH, and Markdown is rendered with DSH's Markdown renderer, with an **Edit source** button that hands the file to the text editor.
 

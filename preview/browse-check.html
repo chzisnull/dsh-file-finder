@@ -24,6 +24,7 @@
     '/ws/src/components': [],
     '/ws/docs': [
       { name: 'guide.md', path: '/ws/docs/guide.md', type: 'file' },
+      { name: 'page.html', path: '/ws/docs/page.html', type: 'file' },
     ],
   }
   var PARENT = {
@@ -74,8 +75,12 @@
       return Promise.resolve(response({ ok: true, mode: 'name', root: '/ws', truncated: false, results: results }))
     }
     if (path === '/dsh-file-finder/read') {
-      var text = TEXTS[body.path] || 'plain text\n'
-      return Promise.resolve(response({ ok: true, path: body.path, version: '1', bytes: text.length, kind: 'text', text: text }))
+      var html = String(body.path).slice(-5) === '.html'
+      var text = html ? '' : (TEXTS[body.path] || 'plain text\n')
+      return Promise.resolve(response({
+        ok: true, path: body.path, version: '1', bytes: text.length,
+        kind: html ? 'html' : 'text', text: text,
+      }))
     }
     return Promise.resolve(response({ ok: false, error: 'unexpected ' + path }))
   }
@@ -189,8 +194,8 @@
       // ── Keyboard: select and open a folder ─────────────────────────────
       await key('ArrowDown')
       await key('Enter')
-      await waitFor(function () { return rowNames().join(',') === 'guide.md' }, 4000)
-      check('ArrowDown + Enter enters the second folder', rowNames().join(',') === 'guide.md', rowNames().join(','))
+      await waitFor(function () { return rowNames().join(',') === 'guide.md,page.html' }, 4000)
+      check('ArrowDown + Enter enters the second folder', rowNames().join(',') === 'guide.md,page.html', rowNames().join(','))
       await key('Backspace')
       await waitFor(function () { return rowNames().length === 4 }, 4000)
       await key('Enter')
@@ -237,6 +242,50 @@
       var editor = await waitFor(function () { return document.querySelector('[data-dff-editor]') }, 5000)
       check('Enter opens the selected file', Boolean(editor) && editor.value.indexOf('hello') !== -1,
         editor ? editor.value.slice(0, 20) : 'no editor')
+
+      // ── Escape walks back one screen at a time ─────────────────────────
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+      await waitFor(function () { return rowNames().join(',') === 'api,components,App.vue,main.ts' }, 4000)
+      check('Escape returns from the editor to its folder', rowNames().join(',') === 'api,components,App.vue,main.ts', rowNames().join(','))
+
+      await key('Backspace')
+      await waitFor(function () { return rowNames().length === 4 }, 4000)
+      await key('ArrowDown')
+      await key('Enter')
+      await waitFor(function () { return rowNames().join(',') === 'guide.md,page.html' }, 4000)
+
+      // A viewer leaves focus outside the panel; Escape must still work.
+      rows()[1].click()
+      await waitFor(function () { return document.querySelector('[data-dff-viewer]') }, 5000)
+      check('an HTML file opens in the viewer', Boolean(document.querySelector('[data-dff-viewer]')),
+        document.querySelector('[data-dff-viewer]') ? document.querySelector('[data-dff-viewer]').getAttribute('data-dff-viewer') : 'none')
+
+      // Escape pressed inside the iframe arrives as a message from the injected bridge.
+      var frame = document.querySelector('[data-dff-viewer] iframe')
+      check('the HTML preview runs in an iframe', Boolean(frame))
+      window.dispatchEvent(new MessageEvent('message', {
+        data: { type: 'dsh-file-finder:escape' },
+        source: frame.contentWindow,
+      }))
+      await waitFor(function () { return rowNames().join(',') === 'guide.md,page.html' }, 4000)
+      check('the viewer escape bridge returns to the folder', rowNames().join(',') === 'guide.md,page.html', rowNames().join(','))
+
+      // And Escape from outside the panel works through the window backstop.
+      rows()[1].click()
+      await waitFor(function () { return document.querySelector('[data-dff-viewer]') }, 5000)
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+      await waitFor(function () { return rowNames().join(',') === 'guide.md,page.html' }, 4000)
+      check('Escape from outside the panel returns to the folder', rowNames().join(',') === 'guide.md,page.html', rowNames().join(','))
+
+      await new Promise(function (resolve) { setTimeout(resolve, 200) })
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+      await waitFor(function () { return rowNames().length === 4 }, 4000)
+      check('Escape walks up to the parent folder', rowNames().length === 4, rowNames().join(','))
+
+      await new Promise(function (resolve) { setTimeout(resolve, 200) })
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+      await new Promise(function (resolve) { setTimeout(resolve, 400) })
+      check('Escape at the root closes the panel', !document.querySelector('[data-dff-palette]'))
 
       window.__BROWSE_CHECK__ = { passed: results.every(function (item) { return item.ok }), results: results }
     })().catch(function (error) {

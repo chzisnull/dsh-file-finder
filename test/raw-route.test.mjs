@@ -8,7 +8,8 @@ import { fileKindOf, parseRange, serveRaw } from '../index.js'
 const ROOT = '/workspace'
 const FILES = new Map([
   [`${ROOT}/logo.png`, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4])],
-  [`${ROOT}/page.html`, Buffer.from('<!doctype html><h1>hi</h1>')],
+  [`${ROOT}/page.html`, Buffer.from('<!doctype html><html><body><h1>hi</h1></body></html>')],
+  [`${ROOT}/plain.txt`, Buffer.from('plain text')],
 ])
 
 function fakeContext(sizes = {}) {
@@ -112,6 +113,21 @@ test('the raw route serves html as a sandbox-friendly document', async () => {
   assert.equal(response.statusCode, 200)
   assert.match(String(response.headers['content-type']), /text\/html/)
   assert.match(String(response.body), /<h1>hi<\/h1>/)
+})
+
+test('served HTML carries the escape bridge and keeps a matching length', async () => {
+  const response = await call(`/dsh-file-finder/ws/${tokenFor(ROOT)}/page.html`)
+  const body = String(response.body)
+  assert.match(body, /dsh-file-finder:escape/)
+  // The forwarder is placed before the closing body tag.
+  assert.ok(body.indexOf('dsh-file-finder:escape') < body.lastIndexOf('</body>'))
+  assert.equal(Number(response.headers['content-length']), Buffer.from(body).length)
+})
+
+test('non-HTML bytes are served untouched', async () => {
+  const response = await call(`/dsh-file-finder/ws/${tokenFor(ROOT)}/plain.txt`)
+  assert.equal(response.statusCode, 200)
+  assert.equal(String(response.body), 'plain text')
 })
 
 test('fileKindOf still routes the editor-facing kinds', () => {

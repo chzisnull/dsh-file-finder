@@ -490,6 +490,27 @@ export function parseRange(value, size) {
   return { start, end }
 }
 
+// Viewers put HTML inside a sandboxed iframe, so a key pressed while the page
+// has focus never reaches the panel. This tiny forwarder is injected into the
+// served document (ASCII bytes, so the page's own charset is untouched) and the
+// client treats the message exactly like its own Escape. A page CSP that blocks
+// inline scripts only loses this shortcut; the panel's own handlers still work.
+const ESCAPE_BRIDGE = Buffer.from(
+  '<script>document.addEventListener("keydown",function(event){'
+  + 'if(event.key!=="Escape")return;'
+  + 'try{parent.postMessage({type:"dsh-file-finder:escape"},"*")}catch(error){}'
+  + '},true)</script>',
+  'utf8',
+)
+
+function withEscapeBridge(buffer) {
+  const lower = Buffer.from('</body>', 'utf8')
+  const upper = Buffer.from('</BODY>', 'utf8')
+  const at = Math.max(buffer.lastIndexOf(lower), buffer.lastIndexOf(upper))
+  if (at < 0) return Buffer.concat([buffer, ESCAPE_BRIDGE])
+  return Buffer.concat([buffer.subarray(0, at), ESCAPE_BRIDGE, buffer.subarray(at)])
+}
+
 export async function serveRaw(ctx, req, res, signal) {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     res.statusCode = 405
@@ -563,7 +584,9 @@ export async function serveRaw(ctx, req, res, signal) {
     res.end('文件过大，请改用 DSH 右侧栏预览或系统应用打开')
     return
   }
-  const buffer = await ctx.fs.readBytes(target, signal, RAW_FULL_CAP)
+  let buffer = await ctx.fs.readBytes(target, signal, RAW_FULL_CAP)
+  const mime = mimeOf(displayPath)
+  if (mime.startsWith('text/html')) buffer = withEscapeBridge(buffer)
   res.statusCode = 200
   res.setHeader('content-length', String(buffer.length))
   if (req.method === 'HEAD') {

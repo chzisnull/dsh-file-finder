@@ -1996,6 +1996,7 @@ window.__ModuleLoader__.load({
       const tokenLayerRef = useRef(null)
       const editorViewRef = useRef(null)
       const panelRef = useRef(null)
+      const escapeHandler = useRef(handleEscape)
       const generation = useRef(0)
       const lastFocus = useRef(null)
       const presence = usePresence(request.open, 150)
@@ -2090,6 +2091,47 @@ window.__ModuleLoader__.load({
           if (retryB) clearTimeout(retryB)
         }
       }, [presence.mounted, request.open, request.token, view, mode])
+
+      useEffect(() => {
+        escapeHandler.current = handleEscape
+      })
+
+      // The overlay is modal, but focus can sit outside the panel: the row that
+      // opened a viewer is unmounted, and an HTML/PDF iframe takes focus on
+      // click. Catch Escape at the window level as a backstop; the panel's own
+      // handler still wins for events that come from inside it.
+      useEffect(() => {
+        if (!request.open || !presence.mounted) return undefined
+        function onWindowKeyDown(event) {
+          if (event.key !== 'Escape' || event.defaultPrevented) return
+          const panel = panelRef.current
+          if (panel && event.target instanceof Node && panel.contains(event.target)) return
+          event.preventDefault()
+          escapeHandler.current()
+        }
+        window.addEventListener('keydown', onWindowKeyDown, true)
+        return () => window.removeEventListener('keydown', onWindowKeyDown, true)
+      }, [request.open, presence.mounted])
+
+      // HTML and PDF previews live in an iframe; the host injects a tiny bridge
+      // that posts this message when Escape is pressed inside the page.
+      useEffect(() => {
+        if (!request.open) return undefined
+        function onViewerMessage(event) {
+          const data = event.data
+          if (!data || typeof data !== 'object' || data.type !== 'dsh-file-finder:escape') return
+          const panel = panelRef.current
+          if (!panel) return
+          let fromViewer = false
+          for (const frame of panel.querySelectorAll('iframe')) {
+            if (frame.contentWindow === event.source) fromViewer = true
+          }
+          if (!fromViewer) return
+          escapeHandler.current()
+        }
+        window.addEventListener('message', onViewerMessage)
+        return () => window.removeEventListener('message', onViewerMessage)
+      }, [request.open])
 
       useEffect(() => {
         function onFocusSearch() {
@@ -2348,6 +2390,17 @@ window.__ModuleLoader__.load({
 
       // The coloured band depends on how much of the file is on screen, so
       // re-measure when the panel is resized (or when colours first switch on).
+      // A viewer has no inner focusable control, so focus the dialog itself:
+      // Escape (and the keyboard backstop) keeps working without a click.
+      useEffect(() => {
+        if (request.open !== true || view !== 'editor' || !file || !file.kind || file.kind === 'text') return undefined
+        const panel = panelRef.current
+        if (panel && typeof panel.focus === 'function') {
+          try { panel.focus({ preventScroll: true }) } catch { /* detached */ }
+        }
+        return undefined
+      }, [request.open, view, file])
+
       useEffect(() => {
         if (view !== 'editor' || !tokenOn) return undefined
         const area = editorRef.current
@@ -2592,6 +2645,35 @@ window.__ModuleLoader__.load({
         else openPrimary(item)
       }
 
+      // Escape walks back one screen at a time: tooltip → file view → parent
+      // directory → closed. It is also reachable from a window listener, because
+      // opening a viewer can leave focus on a node outside the panel.
+      function handleEscape() {
+        if (confirmAction) {
+          setConfirmAction('')
+          return
+        }
+        if (intelHover) {
+          setIntelHover(null)
+          return
+        }
+        if (view === 'editor') {
+          if (file && file.kind && file.kind !== 'text') {
+            setView('search')
+            setNotice('')
+            return
+          }
+          leaveEditor()
+          return
+        }
+        const current = browseState.path || root
+        if (browsing && browseState.parent && browseState.parent !== current) {
+          browseUp()
+          return
+        }
+        closePanel()
+      }
+
       function onPanelKey(event) {
         if (view === 'editor' && file && file.kind === 'text' && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f') {
           event.preventDefault()
@@ -2599,24 +2681,10 @@ window.__ModuleLoader__.load({
           openFind()
           return
         }
-        if (event.key === 'Escape' && intelHover) {
-          event.preventDefault()
-          event.stopPropagation()
-          setIntelHover(null)
-          return
-        }
         if (event.key === 'Escape') {
           event.preventDefault()
           event.stopPropagation()
-          if (confirmAction) {
-            setConfirmAction('')
-            return
-          }
-          if (view === 'editor') {
-            leaveEditor()
-            return
-          }
-          closePanel()
+          handleEscape()
           return
         }
         if (event.key !== 'Tab') return
@@ -3457,6 +3525,7 @@ window.__ModuleLoader__.load({
         className: view === 'editor' ? 'dff-panel dff-panel-editor' : 'dff-panel',
         'data-dff-palette': 'true',
         'data-view': view,
+        tabIndex: -1,
         role: 'dialog',
         'aria-modal': 'true',
         'aria-label': t('title'),
