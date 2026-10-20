@@ -1,7 +1,7 @@
 {
   "name": "dsh-file-finder",
-  "version": "0.5.0",
-  "description": "File finder for DSH: search by name or content, preview images, video, audio, PDF, HTML and Markdown, and edit text files with line numbers and in-file find.",
+  "version": "0.6.0",
+  "description": "File finder for DSH: search by name or content, preview images, video, audio, PDF, HTML and Markdown, and edit text files with syntax colours, line numbers and in-file find.",
   "license": "MIT",
   "type": "module",
   "icon": "./icon.svg",
@@ -39,6 +39,7 @@
     "check:bot": "node preview/bot-check.mjs",
     "check:find": "node preview/find-check.mjs",
     "check:viewer": "node preview/viewer-check.mjs",
+    "check:tokens": "node preview/token-check.mjs",
     "check:intel": "node preview/intel-check.mjs"
   },
   "dsh": {

@@ -70,6 +70,8 @@ Files that are not text open in the built-in viewer instead: images, video and a
 
 Hold **Cmd/Ctrl** in the editor and every identifier that resolves gains a dotted underline and a pointer: hovering shows its kind, its declaration and the line, and Cmd/Ctrl-click jumps to the definition. **Cmd/Ctrl+[** (or the back button in the header) returns to where you came from. Resolution is same-file for now — the declaration scan covers JS/TS, Python, Go, Rust, Java/C-like, HTML anchors and a generic fallback; project-wide TypeScript resolution is the next phase.
 
+Text is coloured lexically: keywords, types, strings, numbers, comments, calls, properties and HTML/CSS/JSON/Markdown markup each get their own colour in both DSH themes. The textarea keeps the caret, selection and IME; only the visible lines are painted, so a large file scrolls without lag. Files over 200 KB fall back to plain text and say so in the header, and an open in-file search keeps the colours behind its highlight.
+
 The editor shows a line-number gutter and highlights the caret's line. **Cmd/Ctrl+F** opens in-file search: every match is highlighted, the current one more strongly, with a match count, previous/next buttons, and a **Aa** case-sensitivity toggle. Enter and Shift+Enter step through matches, Escape closes the search and returns focus to the text.
 
 ## Install
@@ -98,14 +100,15 @@ node --check client.js
 npm test
 ```
 
-`npm test` covers the search helpers, the shortcut-default regression guard, and the UI contract (native preview address, palette hooks, reduced-motion rules, the DS Bot bridge, and the editor's line gutter plus in-file find).
+`npm test` covers the search helpers, the shortcut-default regression guard, and the UI contract (native preview address, palette hooks, reduced-motion rules, the DS Bot bridge, and the editor's line gutter, in-file find and syntax colours).
 
-The editor has its own browser check for the gutter and in-file find, and the viewer has one for every preview kind:
+Browser checks are split by feature:
 
 ```sh
 npm run check:find
 npm run check:viewer
 npm run check:intel
+npm run check:tokens
 ```
 
 The DS Bot bridge also has a browser check that runs the real key handler against DS Bot's real selectors, with and without `ds-bot` in the boot graph:

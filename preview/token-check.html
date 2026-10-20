@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="./theme.css" />
+<title>dsh-file-finder · syntax colour check</title>
+<script>
+  // Fake workspace responses for the lexical highlighting check.
+  (function () {
+    var SAMPLE = [
+      '/**',
+      ' * Token sample.',
+      ' */',
+      "import { rankName } from './rank.js'",
+      '',
+      "const LIMIT = 40 // result cap",
+      '',
+      'export function search(query: string, limit: number) {',
+      "  const needle = query.trim().toLowerCase()",
+      "  if (!needle) return []",
+      "  return items.filter((item) => rankName(item, needle)).slice(0, limit)",
+      '}',
+      '',
+    ].join('\n')
+    var PAGE = [
+      '<!doctype html>',
+      '<section class="wrap" data-id="hero">',
+      '  <!-- anchor target -->',
+      '  <h2 id="section">Section</h2>',
+      '</section>',
+      '',
+    ].join('\n')
+    var CSS = [
+      '.dff-card {',
+      '  display: flex;',
+      '  padding: 12px 16px;',
+      '  color: #1a1a1a;',
+      '  border-radius: 12px;',
+      '}',
+      '',
+    ].join('\n')
+    var JSON_TEXT = [
+      '{',
+      '  "name": "dsh-file-finder",',
+      '  "version": "0.6.0",',
+      '  "private": false,',
+      '  "keywords": ["dsh", "file-search"]',
+      '}',
+      '',
+    ].join('\n')
+    var MD = [
+      '# File finder',
+      '',
+      'Search by `name` or content.',
+      '',
+      '```js',
+      "const hit = find('needle')",
+      '```',
+      '',
+      '[Repository](https://github.com/chzisnull/dsh-file-finder)',
+      '',
+    ].join('\n')
+    var PYTHON = [
+      'from pathlib import Path',
+      '',
+      '@cache',
+      'def totals(paths: list[Path]) -> int:',
+      '    """Sum every file size."""',
+      '    total = 0',
+      '    for path in paths:',
+      '        total += len(path.read_bytes())  # bytes on disk',
+      '    return total',
+      '',
+    ].join('\n')
+    var PLAIN = 'just a note\nnothing to colour here\n'
+    // Over the 200 KB colour budget: 6000 lines of ≈46 characters.
+    var HUGE = []
+    for (var line = 1; line <= 6000; line += 1) {
+      HUGE.push('export const value' + line + ' = ' + line + ' // filler line ' + line)
+    }
+    HUGE = HUGE.join('\n')
+    // Long enough that the coloured window has to move with the scrollbar.
+    var LONG = []
+    for (var index = 1; index <= 900; index += 1) {
+      LONG.push('export function helper' + index + '(value: number) {')
+      LONG.push('  return value + ' + index + ' // helper ' + index)
+      LONG.push('}')
+    }
+    LONG = LONG.join('\n')
+
+    var FILES = {
+      '/ws/sample.ts': { kind: 'text', text: SAMPLE, bytes: SAMPLE.length },
+      '/ws/page.html': { kind: 'text', text: PAGE, bytes: PAGE.length },
+      '/ws/style.css': { kind: 'text', text: CSS, bytes: CSS.length },
+      '/ws/data.json': { kind: 'text', text: JSON_TEXT, bytes: JSON_TEXT.length },
+      '/ws/notes.md': { kind: 'text', text: MD, bytes: MD.length },
+      '/ws/app.py': { kind: 'text', text: PYTHON, bytes: PYTHON.length },
+      '/ws/plain.txt': { kind: 'text', text: PLAIN, bytes: PLAIN.length },
+      '/ws/long.ts': { kind: 'text', text: LONG, bytes: LONG.length },
+      '/ws/huge.ts': { kind: 'text', text: HUGE, bytes: HUGE.length },
+    }
+    function response(body) {
+      return { ok: true, status: 200, json: function () { return Promise.resolve(body) } }
+    }
+    window.fetch = function (input, init) {
+      var url = typeof input === 'string' ? input : (input && input.url) || ''
+      var path = url
+      try { path = new URL(url, location.href).pathname } catch (error) { /* raw */ }
+      var body = {}
+      try { if (init && typeof init.body === 'string') body = JSON.parse(init.body) } catch (error) { body = {} }
+      if (path === '/dsh-file-finder/roots') {
+        return Promise.resolve(response({ ok: true, roots: [{ path: '/ws', title: 'ws', source: 'workspace' }], current: '/ws' }))
+      }
+      if (path === '/dsh-file-finder/search-name') {
+        var query = String(body.query || '')
+        return Promise.resolve(response({ ok: true, mode: 'name', root: '/ws', truncated: false,
+          results: [{ path: '/ws/' + query, name: query, score: 0 }] }))
+      }
+      if (path === '/dsh-file-finder/read') {
+        var file = FILES[body.path] || { kind: 'text', text: '', bytes: 0 }
+        return Promise.resolve(response({ ok: true, path: body.path, version: '1', bytes: file.bytes, kind: file.kind, text: file.text }))
+      }
+      return Promise.resolve(response({ ok: false, error: 'unexpected ' + path }))
+    }
+  })()
+</script>
+</head>
+<body>
+<div id="host"></div>
+<script src="./vendor/react.development.js"></script>
+<script src="./vendor/react-dom.development.js"></script>
+<script src="./loader-shim.js"></script>
+<script src="../client.js"></script>
+<script>
+  (function () {
+    'use strict'
+    var results = []
+    var shortcuts = []
+    var slots = []
+
+    function check(name, ok, detail) {
+      results.push({ name: name, ok: Boolean(ok), detail: detail === undefined ? null : String(detail) })
+    }
+
+    function text(node) { return node ? String(node.textContent || '') : '' }
+
+    function setInputValue(input, value) {
+      var setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+      setter.call(input, value)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+
+    async function waitFor(checkFn, timeout) {
+      var started = performance.now()
+      for (;;) {
+        var value = null
+        try { value = checkFn() } catch (error) { value = null }
+        if (value) return value
+        if (performance.now() - started > (timeout || 4000)) throw new Error('timed out waiting for a selector')
+        await new Promise(function (resolve) { setTimeout(resolve, 30) })
+      }
+    }
+
+    var ctx = {
+      effect: function (fn) { try { var off = fn(); return function () { try { if (typeof off === 'function') off() } catch (e) {} } } catch (e) { return function () {} } },
+      get: function () { return undefined },
+      inject: function (names, callback) {
+        callback({
+          effect: ctx.effect,
+          shortcuts: { register: function (command) { shortcuts.push(command); return function () {} } },
+        })
+      },
+      locale: { register: function () {}, bind: function () { return function (key) { return key } } },
+      slots: {
+        inject: function (name, callback) { callback() },
+        register: function (entry, component) { slots.push({ entry: entry, component: component }); return function () {} },
+      },
+    }
+
+    async function openFile(query) {
+      var shortcut = shortcuts.filter(function (command) { return command.id === 'files.searchName' })[0]
+      shortcut.resolve().run()
+      var input = await waitFor(function () { return document.querySelector('[data-dff-input]') })
+      setInputValue(input, query)
+      await new Promise(function (resolve) { setTimeout(resolve, 350) })
+      await waitFor(function () { return document.querySelector('[data-dff-result]') })
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }))
+      await waitFor(function () {
+        return document.querySelector('[data-dff-editor]') || document.querySelector('[data-dff-viewer]')
+      })
+      if (!document.querySelector('[data-dff-editor]')) {
+        var edit = document.querySelector('.dff-ghost-btn')
+        if (edit) edit.click()
+        await waitFor(function () { return document.querySelector('[data-dff-editor]') })
+      }
+      await new Promise(function (resolve) { setTimeout(resolve, 150) })
+      return document.querySelector('[data-dff-editor]')
+    }
+
+    function spans() {
+      return Array.prototype.slice.call(document.querySelectorAll('[data-dff-token-layer] [data-tok]'))
+    }
+
+    function firstSpan(type) {
+      return document.querySelector('[data-dff-token-layer] [data-tok="' + type + '"]')
+    }
+
+    function colourOf(node) {
+      return node ? getComputedStyle(node).color : ''
+    }
+
+    ;(async function run() {
+      var moduleExports = window.__DFF_MODULE__
+      await moduleExports.apply(ctx)
+      var overlay = slots.filter(function (slot) { return slot.entry && slot.entry.name === 'shell.overlay' })[0]
+      ReactDOM.createRoot(document.getElementById('host')).render(React.createElement(overlay.component, {}))
+      await new Promise(function (resolve) { setTimeout(resolve, 50) })
+
+      // ── TypeScript ──────────────────────────────────────────────────────
+      var area = await openFile('sample.ts')
+      var layer = await waitFor(function () { return document.querySelector('[data-dff-token-layer]') }, 5000)
+      check('the token layer renders', Boolean(layer))
+      var all = spans()
+      check('tokens are split into spans', all.length >= 8, String(all.length))
+      check('keywords are coloured', Boolean(firstSpan('keyword')), colourOf(firstSpan('keyword')))
+      check('strings are coloured', Boolean(firstSpan('string')))
+      check('numbers are coloured', Boolean(firstSpan('number')))
+      check('comments are coloured', Boolean(firstSpan('comment')))
+      check('calls are coloured', Boolean(firstSpan('function')))
+      check('type annotations are coloured', Boolean(firstSpan('type')), colourOf(firstSpan('type')))
+      var keywordColour = colourOf(firstSpan('keyword'))
+      var stringColour = colourOf(firstSpan('string'))
+      var functionColour = colourOf(firstSpan('function'))
+      check('token colours are distinct', keywordColour !== stringColour && stringColour !== functionColour,
+        keywordColour + ' / ' + stringColour + ' / ' + functionColour)
+      check('the textarea text is hidden behind the layer', getComputedStyle(area).color === 'rgba(0, 0, 0, 0)',
+        getComputedStyle(area).color)
+      check('the caret stays visible', getComputedStyle(area).caretColor !== 'rgba(0, 0, 0, 0)',
+        getComputedStyle(area).caretColor)
+      check('the layer repeats the file text', text(layer) === area.value,
+        text(layer).length + ' vs ' + area.value.length)
+
+      // ── HTML / CSS / JSON / Markdown ────────────────────────────────────
+      var htmlArea = await openFile('page.html')
+      await waitFor(function () { return firstSpan('tag') }, 4000)
+      check('markup tags are coloured', Boolean(firstSpan('tag')))
+      check('markup attributes are coloured', Boolean(firstSpan('attr')))
+      check('markup comments are coloured', Boolean(firstSpan('comment')))
+      // The tag span covers "<section", so the tag colour is applied to the name.
+      check('markup keeps the text intact', text(document.querySelector('[data-dff-token-layer]')) === htmlArea.value)
+
+      await openFile('style.css')
+      await waitFor(function () { return firstSpan('property') }, 4000)
+      check('css properties are coloured', Boolean(firstSpan('property')))
+
+      await openFile('app.py')
+      await waitFor(function () { return firstSpan('keyword') }, 4000)
+      var pyStrings = document.querySelectorAll('[data-dff-token-layer] [data-tok="string"]')
+      check('python keeps triple-quoted docstrings whole',
+        Array.prototype.some.call(pyStrings, function (node) {
+          return String(node.textContent).indexOf('Sum every file size.') !== -1
+        }), String(pyStrings.length))
+      check('python decorators are coloured like calls', Boolean(firstSpan('function')))
+      check('python types are coloured', Boolean(firstSpan('type')))
+
+      await openFile('data.json')
+      await waitFor(function () { return firstSpan('property') }, 4000)
+      check('json keys are coloured as properties', Boolean(firstSpan('property')))
+
+      await openFile('notes.md')
+      await waitFor(function () { return firstSpan('keyword') }, 4000)
+      check('markdown headings are coloured', Boolean(firstSpan('keyword')))
+
+      // ── Unsupported extension ───────────────────────────────────────────
+      await openFile('plain.txt')
+      await new Promise(function (resolve) { setTimeout(resolve, 200) })
+      check('a plain text file gets no layer', !document.querySelector('[data-dff-token-layer]'))
+      var plainArea = document.querySelector('[data-dff-editor]')
+      check('a plain text file keeps normal text', getComputedStyle(plainArea).color !== 'rgba(0, 0, 0, 0)',
+        getComputedStyle(plainArea).color)
+
+      // ── Scrolling moves the coloured window ─────────────────────────────
+      var longArea = await openFile('long.ts')
+      await waitFor(function () { return firstSpan('keyword') }, 4000)
+      var before = spans().map(function (node) { return Number(node.getAttribute('data-start') || 0) })
+      longArea.scrollTop = longArea.scrollHeight
+      longArea.dispatchEvent(new Event('scroll', { bubbles: true }))
+      await new Promise(function (resolve) { setTimeout(resolve, 250) })
+      var after = spans().map(function (node) { return Number(node.getAttribute('data-start') || 0) })
+      var firstStart = after.length ? Math.min.apply(null, after) : 0
+      check('the coloured window follows the scrollbar', firstStart > longArea.value.length * 0.5,
+        firstStart + ' of ' + longArea.value.length)
+      check('the layer still covers the whole file after scrolling',
+        text(document.querySelector('[data-dff-token-layer]')) === longArea.value)
+
+      // ── Over budget: degrade to plain text ──────────────────────────────
+      await openFile('huge.ts')
+      await new Promise(function (resolve) { setTimeout(resolve, 250) })
+      check('a file over 200 KB gets no layer', !document.querySelector('[data-dff-token-layer]'))
+      var chip = document.querySelector('[data-dff-plain]')
+      check('the large-file chip is shown', Boolean(chip), chip ? text(chip) : '')
+      var hugeArea = document.querySelector('[data-dff-editor]')
+      check('a large file keeps normal text', getComputedStyle(hugeArea).color !== 'rgba(0, 0, 0, 0)',
+        getComputedStyle(hugeArea).color)
+
+      // ── IME composition hides the layer ─────────────────────────────────
+      var imeArea = await openFile('sample.ts')
+      await waitFor(function () { return document.querySelector('[data-dff-token-layer]') }, 4000)
+      imeArea.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))
+      await new Promise(function (resolve) { setTimeout(resolve, 150) })
+      check('composition hides the layer', !document.querySelector('[data-dff-token-layer]'))
+      check('composition restores normal text', getComputedStyle(imeArea).color !== 'rgba(0, 0, 0, 0)',
+        getComputedStyle(imeArea).color)
+      imeArea.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }))
+      await waitFor(function () { return document.querySelector('[data-dff-token-layer]') }, 4000)
+      check('composition end brings the colours back', Boolean(document.querySelector('[data-dff-token-layer]')))
+
+      // ── Find temporarily takes over the text layer ──────────────────────
+      imeArea.focus()
+      imeArea.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', metaKey: true, bubbles: true, cancelable: true }))
+      var findInput = await waitFor(function () { return document.querySelector('[data-dff-find-input]') }, 4000)
+      setInputValue(findInput, 'needle')
+      await new Promise(function (resolve) { setTimeout(resolve, 250) })
+      check('find keeps the colour layer', Boolean(document.querySelector('[data-dff-token-layer]')))
+      var mirror = document.querySelector('.dff-editor-mirror')
+      check('find leaves the glyphs to the colour layer',
+        Boolean(mirror) && getComputedStyle(mirror).color === 'rgba(0, 0, 0, 0)',
+        mirror ? getComputedStyle(mirror).color : 'no mirror')
+      var marks = document.querySelectorAll('.dff-editor-mirror mark.dff-find-hit')
+      check('find still highlights matches', marks.length > 0, String(marks.length))
+      check('hits keep a visible background',
+        marks.length > 0 && getComputedStyle(marks[0]).backgroundColor !== 'rgba(0, 0, 0, 0)',
+        marks.length ? getComputedStyle(marks[0]).backgroundColor : '')
+      findInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+      await waitFor(function () { return document.querySelector('[data-dff-token-layer]') }, 4000)
+      check('closing find restores the colours', Boolean(document.querySelector('[data-dff-token-layer]')))
+
+      window.__TOKEN_CHECK__ = { passed: results.every(function (item) { return item.ok }), results: results }
+    })().catch(function (error) {
+      window.__TOKEN_CHECK__ = { passed: false, results: results, error: String(error && error.stack ? error.stack : error) }
+    })
+  })()
+</script>
+</body>
+</html>

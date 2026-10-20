@@ -134,3 +134,21 @@ test('holding Cmd resolves same-file identifiers and navigates', () => {
   assert.match(source, /data-dff-nav-back/)
   assert.match(source, /event\.key === '\['/)
 })
+
+test('the editor colours syntax without giving up the textarea', () => {
+  assert.match(source, /const TOKEN_MAX_CHARS = 200 \* 1024/)
+  assert.match(source, /const TOKEN_BUFFER_LINES = 40/)
+  assert.match(source, /function colorLanguageOf\(/)
+  assert.match(source, /function scanTokens\(/)
+  assert.match(source, /const TOKEN_SPECS = \{/)
+  assert.match(source, /function measureTokenWindow\(/)
+  assert.match(source, /data-dff-token-layer/)
+  assert.match(source, /data-dff-plain/)
+  // IME composition, find and large files must fall back to visible text.
+  assert.match(source, /onCompositionStart: \(\) => setComposing\(true\)/)
+  assert.match(source, /color: transparent; caret-color: var\(--dsw-alias-label-primary, CanvasText\)/)
+  assert.match(source, /\.dff-editor-mirror\.is-tinted \{ color: transparent; \}/)
+  // Both DSH themes get their own palette.
+  assert.match(source, /--dff-syn-keyword/)
+  assert.match(source, /body\[data-ds-dark-theme\] \.dff-code \{/)
+})

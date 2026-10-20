@@ -139,6 +139,8 @@ window.__ModuleLoader__.load({
         intelId: '锚点',
         intelDefinition: '定义于第 {line} 行',
         intelNoDefinition: '同文件里没有找到定义',
+        plainText: '大文件·纯文本',
+        plainHint: '文件超过 200 KB，已关闭语法着色以保持输入流畅',
       },
       en: {
         title: 'File Finder',
@@ -254,6 +256,8 @@ window.__ModuleLoader__.load({
         intelId: 'Anchor',
         intelDefinition: 'Defined on line {line}',
         intelNoDefinition: 'No definition in this file',
+        plainText: 'Large file · plain',
+        plainHint: 'Over 200 KB, so syntax colours are off to keep typing fast',
       },
     }
 
@@ -708,6 +712,604 @@ window.__ModuleLoader__.load({
       }
       if (cursor < text.length) segments.push({ text: text.slice(cursor), start: cursor })
       return segments
+    }
+
+    // ── Lexical highlighting (P1) ──────────────────────────────────────────
+    // One dependency-free scanner per language family. It is deliberately
+    // lexical: no scope analysis, so a mis-coloured edge case can never break
+    // the editor. Only the visible window is painted with spans, which keeps a
+    // 200 KB file as cheap to render as a small one.
+    const TOKEN_MAX_CHARS = 200 * 1024
+    const TOKEN_WINDOW_MAX = 4000
+    const TOKEN_BUFFER_LINES = 40
+
+    function codeAt(text, index) {
+      return index >= 0 && index < text.length ? text.charCodeAt(index) : 0
+    }
+
+    function isIdentStartCode(code) {
+      return (code >= 65 && code <= 90) || (code >= 97 && code <= 122)
+        || code === 95 || code === 36 || code > 127
+    }
+
+    function isIdentPartCode(code) {
+      return isIdentStartCode(code) || (code >= 48 && code <= 57)
+    }
+
+    function isDigitCode(code) {
+      return code >= 48 && code <= 57
+    }
+
+    function isSpaceCode(code) {
+      return code === 32 || code === 9 || code === 10 || code === 13
+    }
+
+    function wordSet(words) {
+      return new Set(words.split(/\s+/).filter(Boolean))
+    }
+
+    const TOKEN_KEYWORDS = {
+      js: wordSet('as async await break case catch class const continue debugger declare default delete do else enum export extends finally for from function get if implements import in instanceof interface keyof let namespace new of private protected public readonly return satisfies set static super switch this throw true false null try type typeof var void while with yield'),
+      rust: wordSet('as async await break const continue crate dyn else enum extern false fn for if impl in let loop match mod move mut pub ref return self Self static struct super trait true type unsafe use where while'),
+      go: wordSet('break case chan const continue default defer else fallthrough for func go goto if import interface map package range return select struct switch type var nil true false'),
+      clike: wordSet('abstract auto break case catch char class const continue default delete do double else enum extends final finally float for foreach friend goto if implements import instanceof int interface long namespace new operator package private protected public return short signed sizeof static struct super switch synchronized template this throw throws transient try typedef typename union unsigned using virtual void volatile while boolean bool byte null nullptr true false fn let var async await yield override inline explicit constexpr export from of'),
+      python: wordSet('and as assert async await break class continue def del elif else except finally for from global if import in is lambda nonlocal not or pass raise return try while with yield True False None self'),
+      shell: wordSet('if then elif else fi for while until do done case esac in function return exit export local readonly declare source set unset shift break continue eval exec trap wait alias unalias echo printf read cd true false'),
+      json: wordSet('true false null'),
+      yaml: wordSet('true false null yes no on off'),
+    }
+
+    const TOKEN_TYPES = {
+      js: wordSet('string number boolean any unknown never object symbol bigint'),
+      rust: wordSet('i8 i16 i32 i64 i128 isize u8 u16 u32 u64 u128 usize f32 f64 bool char str String Vec Option Result Box'),
+      go: wordSet('string int int8 int16 int32 int64 uint uint8 uint16 uint32 uint64 uintptr float32 float64 complex64 complex128 bool byte rune error any'),
+      clike: wordSet('string String Object Integer Boolean Double Float Long Short Byte Character byte short int long float double boolean bool void char size_t uint8_t uint16_t uint32_t uint64_t int8_t int16_t int32_t int64_t'),
+      python: wordSet('int float str bool list dict set tuple bytes object type complex frozenset'),
+    }
+
+    const TOKEN_SPECS = {
+      js: { lineComment: '//', blockComment: ['/*', '*/'], quotes: '"\'`', keywords: TOKEN_KEYWORDS.js, types: TOKEN_TYPES.js },
+      rust: { lineComment: '//', blockComment: ['/*', '*/'], quotes: '"', keywords: TOKEN_KEYWORDS.rust, types: TOKEN_TYPES.rust, rustChar: true },
+      go: { lineComment: '//', blockComment: ['/*', '*/'], quotes: '"\'`', keywords: TOKEN_KEYWORDS.go, types: TOKEN_TYPES.go },
+      clike: { lineComment: '//', blockComment: ['/*', '*/'], quotes: '"\'`', keywords: TOKEN_KEYWORDS.clike, types: TOKEN_TYPES.clike },
+      python: { lineComment: '#', quotes: '"\'', triples: ['"""', "'''"], keywords: TOKEN_KEYWORDS.python, types: TOKEN_TYPES.python, decorators: true },
+      shell: { lineComment: '#', quotes: '"\'', keywords: TOKEN_KEYWORDS.shell, variables: true },
+    }
+
+    function colorLanguageOf(name) {
+      const extension = extOf(name)
+      if (/^(?:m?[jt]sx?|cjs)$/.test(extension)) return 'js'
+      if (/^(?:py|pyw)$/.test(extension)) return 'python'
+      if (extension === 'go') return 'go'
+      if (extension === 'rs') return 'rust'
+      if (/^(?:java|kt|kts|cs|scala|swift)$/.test(extension)) return 'clike'
+      if (/^(?:c|h|cpp|cc|cxx|hpp|hxx|m|mm)$/.test(extension)) return 'clike'
+      if (/^(?:html?|xhtml|xml|svg|vue|svelte)$/.test(extension)) return 'markup'
+      if (/^(?:css|scss|sass|less)$/.test(extension)) return 'css'
+      if (/^(?:json|jsonc|json5|webmanifest)$/.test(extension)) return 'json'
+      if (/^(?:ya?ml)$/.test(extension)) return 'yaml'
+      if (/^(?:md|markdown|mdown|mdx)$/.test(extension)) return 'markdown'
+      if (/^(?:sh|bash|zsh|fish|ksh)$/.test(extension)) return 'shell'
+      if (/^(?:toml|ini|cfg|conf)$/.test(extension)) return 'ini'
+      return ''
+    }
+
+    function scanStringEnd(text, start, quote, multiline) {
+      const total = text.length
+      let index = start + quote.length
+      while (index < total) {
+        const char = text[index]
+        if (char === '\\') {
+          index += 2
+          continue
+        }
+        if (quote.length > 1) {
+          if (text.startsWith(quote, index)) return index + quote.length
+        } else if (char === quote) {
+          return index + 1
+        }
+        if (!multiline && char === '\n') return index
+        index += 1
+      }
+      return total
+    }
+
+    function scanNumberEnd(text, start) {
+      let index = start
+      let exponent = false
+      while (index < text.length) {
+        const code = text.charCodeAt(index)
+        if (isDigitCode(code) || code === 46 || code === 95 || code === 120 || code === 88) {
+          index += 1
+          continue
+        }
+        if (code >= 65 && code <= 90 || code >= 97 && code <= 122) {
+          if (!exponent && (code === 101 || code === 69)) {
+            exponent = true
+            index += 1
+            const sign = codeAt(text, index)
+            if (sign === 43 || sign === 45) index += 1
+            continue
+          }
+          index += 1
+          continue
+        }
+        break
+      }
+      return index
+    }
+
+    // Char literal ('a', '\n') vs a Rust lifetime ('a): only the former closes
+    // within a few code units without crossing a newline.
+    function rustCharEnd(text, start) {
+      for (let index = start + 1; index < Math.min(text.length, start + 6); index += 1) {
+        const code = text.charCodeAt(index)
+        if (code === 92) return scanStringEnd(text, start, "'", false)
+        if (code === 39) return index + 1
+        if (code === 10) return 0
+      }
+      return 0
+    }
+
+    function scanScriptTokens(text, spec) {
+      const tokens = []
+      const total = text.length
+      let index = 0
+      let previous = ''
+      while (index < total) {
+        const code = text.charCodeAt(index)
+        if (isSpaceCode(code)) {
+          index += 1
+          continue
+        }
+        if (spec.blockComment && text.startsWith(spec.blockComment[0], index)) {
+          const found = text.indexOf(spec.blockComment[1], index + spec.blockComment[0].length)
+          const stop = found < 0 ? total : found + spec.blockComment[1].length
+          tokens.push({ start: index, end: stop, type: 'comment' })
+          index = stop
+          previous = ';'
+          continue
+        }
+        if (spec.lineComment && text.startsWith(spec.lineComment, index)) {
+          const found = text.indexOf('\n', index)
+          const stop = found < 0 ? total : found
+          tokens.push({ start: index, end: stop, type: 'comment' })
+          index = stop
+          continue
+        }
+        if (spec.triples) {
+          const triple = spec.triples.find((candidate) => text.startsWith(candidate, index))
+          if (triple) {
+            const stop = scanStringEnd(text, index, triple, true)
+            tokens.push({ start: index, end: stop, type: 'string' })
+            index = stop
+            previous = '"'
+            continue
+          }
+        }
+        if (spec.rustChar && code === 39) {
+          const stop = rustCharEnd(text, index)
+          if (stop) {
+            tokens.push({ start: index, end: stop, type: 'string' })
+            index = stop
+            previous = '"'
+            continue
+          }
+          // A lifetime: skip the name so it is not mistaken for a declaration.
+          index += 1
+          while (index < total && isIdentPartCode(text.charCodeAt(index))) index += 1
+          previous = "'"
+          continue
+        }
+        if (spec.quotes && spec.quotes.includes(text[index])) {
+          const quote = text[index]
+          const stop = scanStringEnd(text, index, quote, quote === '`')
+          tokens.push({ start: index, end: stop, type: 'string' })
+          index = stop
+          previous = '"'
+          continue
+        }
+        if (spec.variables && code === 36) {
+          let stop = index + 1
+          const braced = text[stop] === '{'
+          if (braced) stop += 1
+          while (stop < total && isIdentPartCode(text.charCodeAt(stop))) stop += 1
+          if (braced && text[stop] === '}') stop += 1
+          tokens.push({ start: index, end: stop, type: 'property' })
+          index = stop
+          previous = 'a'
+          continue
+        }
+        if ((isDigitCode(code)) || (code === 46 && isDigitCode(codeAt(text, index + 1)))) {
+          const stop = scanNumberEnd(text, index)
+          tokens.push({ start: index, end: stop, type: 'number' })
+          index = stop
+          previous = '0'
+          continue
+        }
+        if (spec.decorators && code === 64) {
+          let stop = index + 1
+          while (stop < total && isIdentPartCode(text.charCodeAt(stop))) stop += 1
+          if (stop > index + 1) {
+            tokens.push({ start: index, end: stop, type: 'function' })
+            index = stop
+            previous = 'a'
+            continue
+          }
+        }
+        if (isIdentStartCode(code)) {
+          let stop = index + 1
+          while (stop < total && isIdentPartCode(text.charCodeAt(stop))) stop += 1
+          const word = text.slice(index, stop)
+          let type = ''
+          if (spec.keywords && spec.keywords.has(word)) {
+            type = 'keyword'
+          } else if (spec.types && spec.types.has(word)) {
+            type = 'type'
+          } else {
+            let look = stop
+            while (look < total && (text[look] === ' ' || text[look] === '\t')) look += 1
+            if (text[look] === '(') type = 'function'
+            else if (previous === '.') type = 'property'
+          }
+          if (type) tokens.push({ start: index, end: stop, type })
+          index = stop
+          previous = 'a'
+          continue
+        }
+        previous = text[index]
+        index += 1
+      }
+      return tokens
+    }
+
+    function scanMarkupTokens(text) {
+      const tokens = []
+      const total = text.length
+      let index = 0
+      while (index < total) {
+        if (text.startsWith('<!--', index)) {
+          const found = text.indexOf('-->', index + 4)
+          const stop = found < 0 ? total : found + 3
+          tokens.push({ start: index, end: stop, type: 'comment' })
+          index = stop
+          continue
+        }
+        if (text[index] === '<' && (isIdentStartCode(codeAt(text, index + 1)) || text[index + 1] === '/')) {
+          let cursor = index + 1
+          if (text[cursor] === '/') cursor += 1
+          while (cursor < total && (isIdentPartCode(text.charCodeAt(cursor)) || text[cursor] === '-' || text[cursor] === ':' || text[cursor] === '.')) cursor += 1
+          tokens.push({ start: index, end: cursor, type: 'tag' })
+          while (cursor < total) {
+            const code = text.charCodeAt(cursor)
+            if (isSpaceCode(code)) {
+              cursor += 1
+              continue
+            }
+            if (text[cursor] === '>') {
+              cursor += 1
+              break
+            }
+            if (text[cursor] === '/') {
+              cursor += 1
+              continue
+            }
+            if (text[cursor] === '"' || text[cursor] === "'") {
+              const stop = scanStringEnd(text, cursor, text[cursor], false)
+              tokens.push({ start: cursor, end: stop, type: 'string' })
+              cursor = stop
+              continue
+            }
+            if (isIdentStartCode(code)) {
+              let stop = cursor + 1
+              while (stop < total && (isIdentPartCode(text.charCodeAt(stop)) || text[stop] === '-' || text[stop] === ':')) stop += 1
+              tokens.push({ start: cursor, end: stop, type: 'attr' })
+              cursor = stop
+              continue
+            }
+            cursor += 1
+          }
+          index = cursor
+          continue
+        }
+        index += 1
+      }
+      return tokens
+    }
+
+    function scanCssTokens(text) {
+      const tokens = []
+      const total = text.length
+      let index = 0
+      let depth = 0
+      while (index < total) {
+        const code = text.charCodeAt(index)
+        if (text.startsWith('/*', index)) {
+          const found = text.indexOf('*/', index + 2)
+          const stop = found < 0 ? total : found + 2
+          tokens.push({ start: index, end: stop, type: 'comment' })
+          index = stop
+          continue
+        }
+        if (text[index] === '"' || text[index] === "'") {
+          const stop = scanStringEnd(text, index, text[index], false)
+          tokens.push({ start: index, end: stop, type: 'string' })
+          index = stop
+          continue
+        }
+        if (text[index] === '{') {
+          depth += 1
+          index += 1
+          continue
+        }
+        if (text[index] === '}') {
+          depth = Math.max(0, depth - 1)
+          index += 1
+          continue
+        }
+        if (text[index] === '@') {
+          let stop = index + 1
+          while (stop < total && isIdentPartCode(text.charCodeAt(stop))) stop += 1
+          tokens.push({ start: index, end: stop, type: 'keyword' })
+          index = stop
+          continue
+        }
+        if (text[index] === '#' && /[0-9a-fA-F]/.test(text[index + 1] || '')) {
+          let stop = index + 1
+          while (stop < total && /[0-9a-fA-F]/.test(text[stop])) stop += 1
+          tokens.push({ start: index, end: stop, type: 'number' })
+          index = stop
+          continue
+        }
+        if (isDigitCode(code) || (code === 46 && isDigitCode(codeAt(text, index + 1)))) {
+          const stop = scanNumberEnd(text, index)
+          tokens.push({ start: index, end: stop, type: 'number' })
+          index = stop
+          continue
+        }
+        if (isIdentStartCode(code)) {
+          let stop = index + 1
+          while (stop < total && (isIdentPartCode(text.charCodeAt(stop)) || text[stop] === '-')) stop += 1
+          let look = stop
+          while (look < total && isSpaceCode(text.charCodeAt(look))) look += 1
+          const word = text.slice(index, stop)
+          if (word === 'important' && text[index - 1] === '!') {
+            tokens.push({ start: index, end: stop, type: 'keyword' })
+          } else if (depth > 0 && text[look] === ':') {
+            tokens.push({ start: index, end: stop, type: 'property' })
+          } else if (text[look] === '(') {
+            tokens.push({ start: index, end: stop, type: 'function' })
+          }
+          index = stop
+          continue
+        }
+        index += 1
+      }
+      return tokens
+    }
+
+    function nextSignificant(text, from) {
+      let index = from
+      while (index < text.length && isSpaceCode(text.charCodeAt(index))) index += 1
+      return index
+    }
+
+    function scanJsonTokens(text) {
+      const tokens = []
+      const total = text.length
+      let index = 0
+      while (index < total) {
+        const code = text.charCodeAt(index)
+        if (isSpaceCode(code)) {
+          index += 1
+          continue
+        }
+        if (text.startsWith('//', index)) {
+          const found = text.indexOf('\n', index)
+          const stop = found < 0 ? total : found
+          tokens.push({ start: index, end: stop, type: 'comment' })
+          index = stop
+          continue
+        }
+        if (text[index] === '"') {
+          const stop = scanStringEnd(text, index, '"', false)
+          const look = nextSignificant(text, stop)
+          tokens.push({ start: index, end: stop, type: text[look] === ':' ? 'property' : 'string' })
+          index = stop
+          continue
+        }
+        if (isDigitCode(code) || (code === 45 && isDigitCode(codeAt(text, index + 1)))) {
+          const stop = scanNumberEnd(text, index + 1)
+          tokens.push({ start: index, end: stop, type: 'number' })
+          index = stop
+          continue
+        }
+        if (isIdentStartCode(code)) {
+          let stop = index + 1
+          while (stop < total && isIdentPartCode(text.charCodeAt(stop))) stop += 1
+          const word = text.slice(index, stop)
+          if (TOKEN_KEYWORDS.json.has(word)) tokens.push({ start: index, end: stop, type: 'keyword' })
+          index = stop
+          continue
+        }
+        index += 1
+      }
+      return tokens
+    }
+
+    function scanYamlTokens(text) {
+      const tokens = []
+      const total = text.length
+      let index = 0
+      let lineStart = true
+      while (index < total) {
+        const code = text.charCodeAt(index)
+        if (code === 10) {
+          lineStart = true
+          index += 1
+          continue
+        }
+        if (isSpaceCode(code)) {
+          index += 1
+          continue
+        }
+        if (text[index] === '#') {
+          const found = text.indexOf('\n', index)
+          const stop = found < 0 ? total : found
+          tokens.push({ start: index, end: stop, type: 'comment' })
+          index = stop
+          continue
+        }
+        if (text[index] === '"' || text[index] === "'") {
+          const stop = scanStringEnd(text, index, text[index], false)
+          tokens.push({ start: index, end: stop, type: 'string' })
+          index = stop
+          lineStart = false
+          continue
+        }
+        if (isDigitCode(code) || (code === 45 && isDigitCode(codeAt(text, index + 1)))) {
+          const stop = scanNumberEnd(text, index + 1)
+          tokens.push({ start: index, end: stop, type: 'number' })
+          index = stop
+          lineStart = false
+          continue
+        }
+        if (isIdentStartCode(code) && lineStart) {
+          let stop = index + 1
+          while (stop < total && (isIdentPartCode(text.charCodeAt(stop)) || text[stop] === '-' || text[stop] === '.')) stop += 1
+          const look = nextSignificant(text, stop)
+          const word = text.slice(index, stop)
+          if (text[look] === ':') tokens.push({ start: index, end: stop, type: 'property' })
+          else if (TOKEN_KEYWORDS.yaml.has(word)) tokens.push({ start: index, end: stop, type: 'keyword' })
+          index = stop
+          lineStart = false
+          continue
+        }
+        lineStart = false
+        index += 1
+      }
+      return tokens
+    }
+
+    function scanMarkdownTokens(text) {
+      const tokens = []
+      const total = text.length
+      let index = 0
+      let atLineStart = true
+      while (index < total) {
+        if (atLineStart && text.startsWith('```', index)) {
+          const fence = text.indexOf('\n', index)
+          const opening = fence < 0 ? total : fence
+          tokens.push({ start: index, end: opening, type: 'comment' })
+          let cursor = fence < 0 ? total : fence + 1
+          const close = text.indexOf('\n```', cursor)
+          const bodyEnd = close < 0 ? total : close + 1
+          index = bodyEnd
+          if (close < 0) break
+          tokens.push({ start: close + 1, end: Math.min(total, close + 4), type: 'comment' })
+          index = close + 4
+          atLineStart = false
+          continue
+        }
+        if (atLineStart && text[index] === '#') {
+          let hashes = index
+          while (hashes < total && text[hashes] === '#') hashes += 1
+          if (text[hashes] === ' ' || hashes === total || text[hashes] === '\n') {
+            tokens.push({ start: index, end: hashes, type: 'keyword' })
+            const lineEnd = text.indexOf('\n', hashes)
+            const stop = lineEnd < 0 ? total : lineEnd
+            if (stop > hashes + 1) tokens.push({ start: hashes + 1, end: stop, type: 'type' })
+            index = stop
+            continue
+          }
+        }
+        if (text[index] === '`') {
+          const found = text.indexOf('`', index + 1)
+          const stop = found < 0 ? index + 1 : found + 1
+          tokens.push({ start: index, end: stop, type: 'string' })
+          index = stop
+          atLineStart = false
+          continue
+        }
+        if (text[index] === ']' && text[index + 1] === '(') {
+          const found = text.indexOf(')', index + 2)
+          const stop = found < 0 ? total : found + 1
+          tokens.push({ start: index + 2, end: stop - 1, type: 'string' })
+          index = stop
+          atLineStart = false
+          continue
+        }
+        if (text[index] === '\n') {
+          atLineStart = true
+          index += 1
+          continue
+        }
+        atLineStart = false
+        index += 1
+      }
+      return tokens
+    }
+
+    function scanIniTokens(text) {
+      const tokens = []
+      const total = text.length
+      let index = 0
+      let atLineStart = true
+      while (index < total) {
+        const code = text.charCodeAt(index)
+        if (code === 10) {
+          atLineStart = true
+          index += 1
+          continue
+        }
+        if (isSpaceCode(code)) {
+          index += 1
+          continue
+        }
+        if (text[index] === '#' || text[index] === ';') {
+          const found = text.indexOf('\n', index)
+          const stop = found < 0 ? total : found
+          tokens.push({ start: index, end: stop, type: 'comment' })
+          index = stop
+          continue
+        }
+        if (atLineStart && text[index] === '[') {
+          const found = text.indexOf(']', index + 1)
+          const stop = found < 0 ? total : found + 1
+          tokens.push({ start: index, end: stop, type: 'keyword' })
+          index = stop
+          continue
+        }
+        if (atLineStart && isIdentStartCode(code)) {
+          let stop = index + 1
+          while (stop < total && (isIdentPartCode(text.charCodeAt(stop)) || text[stop] === '.' || text[stop] === '-')) stop += 1
+          const look = nextSignificant(text, stop)
+          if (text[look] === '=' || text[look] === ':') tokens.push({ start: index, end: stop, type: 'property' })
+          index = stop
+          continue
+        }
+        if (text[index] === '"' || text[index] === "'") {
+          const stop = scanStringEnd(text, index, text[index], false)
+          tokens.push({ start: index, end: stop, type: 'string' })
+          index = stop
+          continue
+        }
+        atLineStart = false
+        index += 1
+      }
+      return tokens
+    }
+
+    function scanTokens(text, language) {
+      if (!language) return []
+      if (language === 'markup') return scanMarkupTokens(text)
+      if (language === 'css') return scanCssTokens(text)
+      if (language === 'json') return scanJsonTokens(text)
+      if (language === 'yaml') return scanYamlTokens(text)
+      if (language === 'markdown') return scanMarkdownTokens(text)
+      if (language === 'ini') return scanIniTokens(text)
+      const spec = TOKEN_SPECS[language]
+      return spec ? scanScriptTokens(text, spec) : []
     }
 
     function extOf(name) {
@@ -1172,6 +1774,8 @@ window.__ModuleLoader__.load({
       const [findFocused, setFindFocused] = useState(false)
       const [intelArmed, setIntelArmed] = useState(false)
       const [intelHover, setIntelHover] = useState(null)
+      const [composing, setComposing] = useState(false)
+      const [tokenWindow, setTokenWindow] = useState(null)
       const [navDepth, setNavDepth] = useState(0)
       const inputRef = useRef(null)
       const editorRef = useRef(null)
@@ -1181,6 +1785,7 @@ window.__ModuleLoader__.load({
       const markerRef = useRef(null)
       const activeLineRef = useRef(1)
       const intelLayerRef = useRef(null)
+      const tokenLayerRef = useRef(null)
       const editorViewRef = useRef(null)
       const navStackRef = useRef([])
       const panelRef = useRef(null)
@@ -1395,6 +2000,60 @@ window.__ModuleLoader__.load({
         return { language, index, segments: buildIntelSegments(draft, index) }
       }, [intelArmed, file, draft, findOpen])
 
+      // Lexical colours. The scanner runs once per edit (a single linear pass);
+      // only the tokens inside the visible window are turned into spans, so a
+      // large file stays cheap to scroll.
+      const tokenLanguage = useMemo(
+        () => (file && file.kind === 'text' ? colorLanguageOf(file.path) : ''),
+        [file],
+      )
+      const tokenOn = Boolean(
+        tokenLanguage && draft && draft.length <= TOKEN_MAX_CHARS && !composing
+      )
+      const lineStarts = useMemo(() => {
+        if (!tokenOn) return null
+        const starts = [0]
+        for (let index = 0; index < draft.length; index += 1) {
+          if (draft.charCodeAt(index) === 10) starts.push(index + 1)
+        }
+        return starts
+      }, [draft, tokenOn])
+      const tokenList = useMemo(() => {
+        if (!tokenOn) return null
+        const tokens = scanTokens(draft, tokenLanguage)
+        return tokens.length > TOKEN_WINDOW_MAX * 20 ? null : tokens
+      }, [draft, tokenLanguage, tokenOn])
+      const tokenSegments = useMemo(() => {
+        if (!tokenOn || !lineStarts || !tokenList) return null
+        const fromLine = tokenWindow ? Math.max(0, tokenWindow.from) : 0
+        const toLine = tokenWindow ? Math.min(lineStarts.length, tokenWindow.to) : lineStarts.length
+        const from = lineStarts[fromLine] === undefined ? draft.length : lineStarts[fromLine]
+        const to = toLine < lineStarts.length ? lineStarts[toLine] : draft.length
+        const inside = []
+        for (const token of tokenList) {
+          if (token.start >= from && token.end <= to) inside.push(token)
+          if (token.start > to) break
+        }
+        // A window with nothing to colour (or too much of it) leaves the
+        // textarea in charge, so the glyphs are never painted twice.
+        if (!inside.length || inside.length > TOKEN_WINDOW_MAX) return null
+        const segments = []
+        let cursor = 0
+        for (const token of inside) {
+          if (token.start > cursor) segments.push({ text: draft.slice(cursor, token.start), start: cursor, type: '' })
+          segments.push({ text: draft.slice(token.start, token.end), start: token.start, type: token.type })
+          cursor = token.end
+        }
+        if (cursor < draft.length) segments.push({ text: draft.slice(cursor), start: cursor, type: '' })
+        return segments
+      }, [tokenOn, lineStarts, tokenList, tokenWindow, draft])
+      // Only tint the textarea when the layer actually paints something; an
+      // empty token list must never make the text invisible.
+      const tokenPainted = useMemo(
+        () => Boolean(tokenSegments && tokenSegments.some((segment) => segment.type)),
+        [tokenSegments],
+      )
+
       // Keep the current match inside the list as the draft or the query changes.
       useEffect(() => {
         if (!findOpen) return
@@ -1439,6 +2098,19 @@ window.__ModuleLoader__.load({
       }, [view, file, findOpen])
 
       useEffect(() => { setIntelHover(null) }, [draft, intelArmed])
+
+      // The coloured band depends on how much of the file is on screen, so
+      // re-measure when the panel is resized (or when colours first switch on).
+      useEffect(() => {
+        if (view !== 'editor' || !tokenOn) return undefined
+        const area = editorRef.current
+        if (!area) return undefined
+        measureTokenWindow(area)
+        if (typeof ResizeObserver === 'undefined') return undefined
+        const observer = new ResizeObserver(() => measureTokenWindow(area))
+        observer.observe(area)
+        return () => observer.disconnect()
+      }, [view, tokenOn, file])
 
       // Bring the active match into view. Horizontal alignment happens after the
       // mirror has painted, because only the rendered <mark> knows where the
@@ -1689,6 +2361,21 @@ window.__ModuleLoader__.load({
         }
       }
 
+      // Tokens are painted only for the visible lines plus a buffer. The window
+      // advances once the view has scrolled past that buffer, so a smooth scroll
+      // does not re-render the coloured band on every frame.
+      function measureTokenWindow(area) {
+        const view = area || editorRef.current
+        if (!view) return
+        const height = Math.max(view.clientHeight, EDITOR_LINE_HEIGHT)
+        const first = Math.max(0, Math.floor(view.scrollTop / EDITOR_LINE_HEIGHT) - TOKEN_BUFFER_LINES)
+        const last = Math.ceil((view.scrollTop + height) / EDITOR_LINE_HEIGHT) + TOKEN_BUFFER_LINES
+        setTokenWindow((current) => {
+          if (current && first >= current.from && last <= current.to) return current
+          return { from: first, to: last }
+        })
+      }
+
       function syncEditorScroll(area) {
         if (!area) return
         const top = area.scrollTop
@@ -1702,6 +2389,10 @@ window.__ModuleLoader__.load({
         if (intelLayerRef.current) {
           intelLayerRef.current.style.transform = 'translate3d(' + String(-left) + 'px,' + String(-top) + 'px,0)'
         }
+        if (tokenLayerRef.current) {
+          tokenLayerRef.current.style.transform = 'translate3d(' + String(-left) + 'px,' + String(-top) + 'px,0)'
+        }
+        measureTokenWindow(area)
         positionActiveLine()
       }
 
@@ -2209,6 +2900,9 @@ window.__ModuleLoader__.load({
               h('span', { className: 'dff-editor-stats' },
                 lineCount ? h('span', null, textOf(t, 'lines', { count: lineCount })) : null,
                 file && file.bytes ? h('span', null, bytesText(file.bytes)) : null,
+                tokenLanguage && draft.length > TOKEN_MAX_CHARS
+                  ? h('span', { className: 'dff-plain-chip', 'data-dff-plain': 'true', title: t('plainHint') }, t('plainText'))
+                  : null,
                 h('span', null, 'UTF-8'))),
             h('div', { className: 'dff-code', 'data-dff-code': 'true' },
               findOpen ? h('div', {
@@ -2267,11 +2961,28 @@ window.__ModuleLoader__.load({
                 h('div', { ref: markerRef, className: 'dff-line-marker' }),
                 h('pre', { ref: gutterRef, className: 'dff-gutter-inner', 'data-dff-gutter': 'true' }, gutterText)),
               h('div', { className: 'dff-code-pane' },
-                mirrorOn ? h('pre', { className: 'dff-editor-mirror', 'aria-hidden': 'true' },
+                tokenPainted ? h('pre', {
+                  className: 'dff-token-layer', 'aria-hidden': 'true', ref: tokenLayerRef,
+                  'data-dff-token-layer': 'true',
+                },
+                  h('code', { className: 'dff-token-inner' }, tokenSegments.map((segment, index) => (
+                    segment.type
+                      ? h('span', {
+                        key: 'c' + String(index),
+                        className: 'dff-tok dff-tok-' + segment.type,
+                        'data-tok': segment.type,
+                        'data-start': segment.start,
+                      }, segment.text)
+                      : segment.text
+                  )))) : null,
+                mirrorOn ? h('pre', {
+                  className: 'dff-editor-mirror' + (tokenPainted ? ' is-tinted' : ''),
+                  'aria-hidden': 'true',
+                },
                   h('code', { ref: mirrorRef, className: 'dff-editor-mirror-inner' }, mirrorNodes)) : null,
                 h('textarea', {
                   ref: editorRef,
-                  className: mirrorOn ? 'dff-editor is-mirrored' : 'dff-editor',
+                  className: 'dff-editor' + (mirrorOn ? ' is-mirrored' : tokenPainted ? ' is-tinted' : ''),
                   'data-dff-editor': 'true',
                   value: draft,
                   spellCheck: false,
@@ -2282,6 +2993,8 @@ window.__ModuleLoader__.load({
                   onSelect: trackActiveLine,
                   onClick: trackActiveLine,
                   onScroll: onEditorScroll,
+                  onCompositionStart: () => setComposing(true),
+                  onCompositionEnd: () => setComposing(false),
                   'aria-label': file ? file.path : t('title'),
                 }),
                 intel ? h('pre', {
@@ -2961,6 +3674,66 @@ window.__ModuleLoader__.load({
         font-size: 12.5px; line-height: 20px; tab-size: 2;
       }
       .dff-editor.is-mirrored { color: transparent; caret-color: var(--dsw-alias-label-primary); }
+
+      /* ── Lexical colours ──────────────────────────────────────────────────
+         One palette per DSH theme. The textarea keeps the caret, selection and
+         IME; the layer below only paints coloured spans for the visible lines. */
+      .dff-code {
+        --dff-syn-keyword: #7c3aed;
+        --dff-syn-type: #0e7490;
+        --dff-syn-string: #1a7f4b;
+        --dff-syn-number: #b45309;
+        --dff-syn-comment: #767b84;
+        --dff-syn-function: #2563eb;
+        --dff-syn-property: #5f6b7a;
+        --dff-syn-tag: #c2410c;
+        --dff-syn-attr: #b45309;
+      }
+      body[data-ds-dark-theme] .dff-code {
+        --dff-syn-keyword: #c9a6ff;
+        --dff-syn-type: #6fd8e8;
+        --dff-syn-string: #8fe0a9;
+        --dff-syn-number: #f7c56b;
+        --dff-syn-comment: #7c828c;
+        --dff-syn-function: #8ab4ff;
+        --dff-syn-property: #a9b4c2;
+        --dff-syn-tag: #ff9e75;
+        --dff-syn-attr: #f7c56b;
+      }
+      .dff-token-layer {
+        position: absolute; inset: 0; z-index: 1;
+        margin: 0; padding: 14px 16px;
+        overflow: hidden; pointer-events: none;
+        color: var(--dsw-alias-label-primary);
+        font-family: var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+        font-size: 12.5px; line-height: 20px; tab-size: 2;
+        white-space: pre;
+      }
+      .dff-token-inner { display: block; font: inherit; line-height: inherit; tab-size: inherit; will-change: transform; }
+      .dff-tok-keyword { color: var(--dff-syn-keyword); }
+      .dff-tok-type { color: var(--dff-syn-type); }
+      .dff-tok-string { color: var(--dff-syn-string); }
+      .dff-tok-number { color: var(--dff-syn-number); }
+      .dff-tok-comment { color: var(--dff-syn-comment); font-style: italic; }
+      .dff-tok-function { color: var(--dff-syn-function); }
+      .dff-tok-property { color: var(--dff-syn-property); }
+      .dff-tok-tag { color: var(--dff-syn-tag); }
+      .dff-tok-attr { color: var(--dff-syn-attr); }
+      .dff-editor.is-tinted { color: transparent; caret-color: var(--dsw-alias-label-primary, CanvasText); }
+      .dff-editor.is-tinted::selection {
+        background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 26%, transparent);
+        color: transparent;
+      }
+      .dff-plain-chip {
+        padding: 1px 7px; border-radius: 999px;
+        background: var(--dsw-alias-bg-module-platform);
+        color: var(--dsw-alias-label-tertiary);
+        font-size: 10.5px; line-height: 15px; white-space: nowrap;
+      }
+      /* While find is open the mirror only draws the hit backgrounds; the
+         colour layer below still paints the glyphs, so syntax colours survive
+         a search. Without colours the mirror keeps its own visible text. */
+      .dff-editor-mirror.is-tinted { color: transparent; }
       .dff-editor-mirror {
         position: absolute; inset: 0; margin: 0; padding: 14px 16px;
         overflow: hidden; pointer-events: none;
