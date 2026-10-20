@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>dsh-file-finder · ⌘ identifier layer check</title>
+<script>
+  // Fake workspace responses for the same-file ⌘-navigation check.
+  (function () {
+    var TEXT = [
+      'const helper = 1',
+      '',
+      'function greet(name: string) {',
+      '  return helper + name',
+      '}',
+      '',
+      'function main() {',
+      "  return greet('x')",
+      '}',
+      '',
+    ].join('\n')
+    var ANCHORS = [
+      '<!doctype html>',
+      '<a href="#section">jump</a>',
+      '<h2 id="section">Section</h2>',
+      '',
+    ].join('\n')
+    var FILES = {
+      '/ws/sample.ts': { kind: 'text', text: TEXT, bytes: TEXT.length },
+      '/ws/page.html': { kind: 'html', text: ANCHORS, bytes: ANCHORS.length },
+    }
+    function response(body) {
+      return { ok: true, status: 200, json: function () { return Promise.resolve(body) } }
+    }
+    window.fetch = function (input, init) {
+      var url = typeof input === 'string' ? input : (input && input.url) || ''
+      var path = url
+      try { path = new URL(url, location.href).pathname } catch (error) { /* raw */ }
+      var body = {}
+      try { if (init && typeof init.body === 'string') body = JSON.parse(init.body) } catch (error) { body = {} }
+      if (path === '/dsh-file-finder/roots') {
+        return Promise.resolve(response({ ok: true, roots: [{ path: '/ws', title: 'ws', source: 'workspace' }], current: '/ws' }))
+      }
+      if (path === '/dsh-file-finder/search-name') {
+        var query = String(body.query || '')
+        return Promise.resolve(response({ ok: true, mode: 'name', root: '/ws', truncated: false,
+          results: [{ path: '/ws/' + query, name: query, score: 0 }] }))
+      }
+      if (path === '/dsh-file-finder/read') {
+        var file = FILES[body.path] || { kind: 'text', text: '', bytes: 0 }
+        return Promise.resolve(response({ ok: true, path: body.path, version: '1', bytes: file.bytes, kind: file.kind, text: file.text }))
+      }
+      return Promise.resolve(response({ ok: false, error: 'unexpected ' + path }))
+    }
+  })()
+</script>
+</head>
+<body>
+<div id="host"></div>
+<script src="./vendor/react.development.js"></script>
+<script src="./vendor/react-dom.development.js"></script>
+<script src="./loader-shim.js"></script>
+<script src="../client.js"></script>
+<script>
+  (function () {
+    'use strict'
+    var results = []
+    var shortcuts = []
+    var slots = []
+
+    function check(name, ok, detail) {
+      results.push({ name: name, ok: Boolean(ok), detail: detail === undefined ? null : String(detail) })
+    }
+
+    function text(node) { return node ? String(node.textContent || '') : '' }
+
+    function setInputValue(input, value) {
+      var setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+      setter.call(input, value)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+
+    async function waitFor(checkFn, timeout) {
+      var started = performance.now()
+      for (;;) {
+        var value = null
+        try { value = checkFn() } catch (error) { value = null }
+        if (value) return value
+        if (performance.now() - started > (timeout || 4000)) throw new Error('timed out waiting for a selector')
+        await new Promise(function (resolve) { setTimeout(resolve, 30) })
+      }
+    }
+
+    function fire(node, type, options) {
+      node.dispatchEvent(new MouseEvent(type, Object.assign({ bubbles: true, cancelable: true, view: window }, options || {})))
+    }
+
+    var ctx = {
+      effect: function (fn) { try { var off = fn(); return function () { try { if (typeof off === 'function') off() } catch (e) {} } } catch (e) { return function () {} } },
+      get: function () { return undefined },
+      inject: function (names, callback) {
+        callback({
+          effect: ctx.effect,
+          shortcuts: { register: function (command) { shortcuts.push(command); return function () {} } },
+        })
+      },
+      locale: { register: function () {}, bind: function () { return function (key) { return key } } },
+      slots: {
+        inject: function (name, callback) { callback() },
+        register: function (entry, component) { slots.push({ entry: entry, component: component }); return function () {} },
+      },
+    }
+
+    async function openFile(query) {
+      var shortcut = shortcuts.filter(function (command) { return command.id === 'files.searchName' })[0]
+      shortcut.resolve().run()
+      var input = await waitFor(function () { return document.querySelector('[data-dff-input]') })
+      setInputValue(input, query)
+      await new Promise(function (resolve) { setTimeout(resolve, 350) })
+      await waitFor(function () { return document.querySelector('[data-dff-result]') })
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }))
+      await waitFor(function () {
+        return document.querySelector('[data-dff-editor]') || document.querySelector('[data-dff-viewer]')
+      })
+      // Documents open in the viewer; switch to the source editor first.
+      if (!document.querySelector('[data-dff-editor]')) {
+        var edit = document.querySelector('.dff-ghost-btn')
+        if (edit) edit.click()
+        await waitFor(function () { return document.querySelector('[data-dff-editor]') })
+      }
+      await new Promise(function (resolve) { setTimeout(resolve, 120) })
+      return document.querySelector('[data-dff-editor]')
+    }
+
+    function arm() {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Meta', metaKey: true, bubbles: true, cancelable: true }))
+    }
+
+    function disarm() {
+      window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Meta', metaKey: false, bubbles: true, cancelable: true }))
+    }
+
+    ;(async function run() {
+      var moduleExports = window.__DFF_MODULE__
+      await moduleExports.apply(ctx)
+      var overlay = slots.filter(function (slot) { return slot.entry && slot.entry.name === 'shell.overlay' })[0]
+      ReactDOM.createRoot(document.getElementById('host')).render(React.createElement(overlay.component, {}))
+      await new Promise(function (resolve) { setTimeout(resolve, 50) })
+
+      var area = await openFile('sample.ts')
+
+      // ⌘ arms the layer.
+      arm()
+      var layer = await waitFor(function () { return document.querySelector('[data-dff-intel-layer]') }, 5000)
+      check('⌘ renders the identifier layer', Boolean(layer))
+      var navigable = document.querySelectorAll('.dff-intel-token.is-navigable')
+      check('declarations are navigable', navigable.length >= 3, String(navigable.length))
+
+      // Hover the usage of greet inside main().
+      var greetSpans = Array.prototype.filter.call(
+        document.querySelectorAll('[data-name="greet"]'),
+        function (node) { return true },
+      )
+      check('greet appears as declaration and use', greetSpans.length >= 2, String(greetSpans.length))
+      var usage = greetSpans[greetSpans.length - 1]
+      var declarationOffset = area.value.indexOf('function greet') + 'function '.length
+      var usageOffset = Number(usage.getAttribute('data-start'))
+      check('usage is after the declaration', usageOffset > declarationOffset, usageOffset + ' vs ' + declarationOffset)
+      fire(usage, 'mouseover', { relatedTarget: document.body })
+      var tip = await waitFor(function () { return document.querySelector('[data-dff-intel-tip]') }, 3000)
+      check('hover shows a tooltip', Boolean(tip))
+      check('tooltip names the symbol', text(tip).indexOf('greet') !== -1, text(tip).slice(0, 60))
+      check('tooltip names the kind', text(tip).indexOf('intelFunction') !== -1, text(tip).slice(0, 60))
+
+      // ⌘-click jumps to the declaration.
+      fire(usage, 'mousedown', { metaKey: true, button: 0 })
+      await new Promise(function (resolve) { setTimeout(resolve, 60) })
+      check('⌘-click jumps to the declaration', area.selectionStart === declarationOffset, area.selectionStart + ' vs ' + declarationOffset)
+      var back = document.querySelector('[data-dff-nav-back]')
+      check('a back button appears', Boolean(back))
+
+      back.click()
+      await new Promise(function (resolve) { setTimeout(resolve, 60) })
+      check('back returns to the previous location', area.selectionStart === 0, String(area.selectionStart))
+
+      // A token without a declaration stays inert.
+      var inert = Array.prototype.filter.call(
+        document.querySelectorAll('.dff-intel-token'),
+        function (node) { return node.getAttribute('data-name') === 'return' },
+      )[0]
+      if (inert) {
+        fire(inert, 'mouseover', { relatedTarget: document.body })
+        await new Promise(function (resolve) { setTimeout(resolve, 80) })
+        check('non-declared words show no tooltip', !document.querySelector('[data-dff-intel-tip]'))
+      }
+
+      // Releasing ⌘ removes the layer.
+      disarm()
+      await new Promise(function (resolve) { setTimeout(resolve, 120) })
+      check('releasing ⌘ removes the layer', !document.querySelector('[data-dff-intel-layer]'))
+
+      // HTML: href="#id" resolves to the same-file id.
+      var htmlArea = await openFile('page.html')
+      arm()
+      await waitFor(function () { return document.querySelector('[data-dff-intel-layer]') }, 5000)
+      var section = document.querySelector('[data-name="section"]')
+      check('html anchors are navigable', Boolean(section))
+      if (section) {
+        var anchorOffset = htmlArea.value.indexOf('id="section"') + 'id="'.length
+        fire(section, 'mousedown', { metaKey: true, button: 0 })
+        await new Promise(function (resolve) { setTimeout(resolve, 60) })
+        check('anchor jumps to the id', htmlArea.selectionStart === anchorOffset, htmlArea.selectionStart + ' vs ' + anchorOffset)
+      }
+      disarm()
+
+      window.__INTEL_CHECK__ = { passed: results.every(function (item) { return item.ok }), results: results }
+    })().catch(function (error) {
+      window.__INTEL_CHECK__ = { passed: false, results: results, error: String(error && error.stack ? error.stack : error) }
+    })
+  })()
+</script>
+</body>
+</html>

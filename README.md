@@ -68,6 +68,8 @@ Choose a result and press Cmd/Ctrl+Enter (or set the built-in editor as the defa
 
 Files that are not text open in the built-in viewer instead: images, video and audio render inline (byte ranges, so video seeking works), PDFs open in the platform frame, HTML pages run in a sandboxed iframe whose scripts cannot reach DSH, and Markdown is rendered with DSH's Markdown renderer, with an **Edit source** button that hands the file to the text editor.
 
+Hold **Cmd/Ctrl** in the editor and every identifier that resolves gains a dotted underline and a pointer: hovering shows its kind, its declaration and the line, and Cmd/Ctrl-click jumps to the definition. **Cmd/Ctrl+[** (or the back button in the header) returns to where you came from. Resolution is same-file for now — the declaration scan covers JS/TS, Python, Go, Rust, Java/C-like, HTML anchors and a generic fallback; project-wide TypeScript resolution is the next phase.
+
 The editor shows a line-number gutter and highlights the caret's line. **Cmd/Ctrl+F** opens in-file search: every match is highlighted, the current one more strongly, with a match count, previous/next buttons, and a **Aa** case-sensitivity toggle. Enter and Shift+Enter step through matches, Escape closes the search and returns focus to the text.
 
 ## Install
@@ -103,6 +105,7 @@ The editor has its own browser check for the gutter and in-file find, and the vi
 ```sh
 npm run check:find
 npm run check:viewer
+npm run check:intel
 ```
 
 The DS Bot bridge also has a browser check that runs the real key handler against DS Bot's real selectors, with and without `ds-bot` in the boot graph:

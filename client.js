@@ -127,6 +127,18 @@ window.__ModuleLoader__.load({
         kindMarkdown: 'Markdown',
         kindHtml: 'HTML',
         kindBinary: '二进制文件',
+        navBack: '返回上一处',
+        intelFunction: '函数',
+        intelMethod: '方法',
+        intelClass: '类',
+        intelInterface: '接口',
+        intelType: '类型',
+        intelEnum: '枚举',
+        intelVariable: '变量',
+        intelParameter: '参数',
+        intelId: '锚点',
+        intelDefinition: '定义于第 {line} 行',
+        intelNoDefinition: '同文件里没有找到定义',
       },
       en: {
         title: 'File Finder',
@@ -230,6 +242,18 @@ window.__ModuleLoader__.load({
         kindMarkdown: 'Markdown',
         kindHtml: 'HTML',
         kindBinary: 'Binary file',
+        navBack: 'Back to previous location',
+        intelFunction: 'Function',
+        intelMethod: 'Method',
+        intelClass: 'Class',
+        intelInterface: 'Interface',
+        intelType: 'Type',
+        intelEnum: 'Enum',
+        intelVariable: 'Variable',
+        intelParameter: 'Parameter',
+        intelId: 'Anchor',
+        intelDefinition: 'Defined on line {line}',
+        intelNoDefinition: 'No definition in this file',
       },
     }
 
@@ -501,6 +525,189 @@ window.__ModuleLoader__.load({
       event.preventDefault()
       event.stopPropagation()
       botBridge.toggle()
+    }
+
+
+    // ── Same-file code intelligence (P0) ───────────────────────────────────
+    // No parser yet: a language-aware declaration scan gives ⌘-hover and
+    // same-file go-to-definition for every text file, and the TypeScript service
+    // will plug in behind the same client contract later.
+    const INTEL_MAX_CHARS = 200 * 1024
+    const INTEL_MAX_SPANS = 15000
+
+    function intelLanguageOf(name) {
+      const extension = extOf(name)
+      if (/^(?:m?[jt]sx?|cjs|vue|svelte)$/.test(extension)) return 'js'
+      if (/^(?:py|pyw)$/.test(extension)) return 'python'
+      if (extension === 'go') return 'go'
+      if (extension === 'rs') return 'rust'
+      if (/^(?:java|kt|kts|cs|c|h|cpp|cc|hpp|m|mm|swift|scala)$/.test(extension)) return 'clike'
+      if (/^(?:html?|xhtml)$/.test(extension)) return 'html'
+      return 'generic'
+    }
+
+    const INTEL_RESERVED = new Set([
+      'if', 'for', 'while', 'switch', 'catch', 'return', 'function', 'else', 'do', 'try',
+      'new', 'delete', 'typeof', 'instanceof', 'in', 'of', 'await', 'async', 'yield',
+      'const', 'let', 'var', 'class', 'interface', 'type', 'enum', 'import', 'export',
+      'default', 'extends', 'implements', 'this', 'super', 'null', 'undefined', 'true', 'false',
+    ])
+
+    const INTEL_RULES = {
+      js: [
+        { kind: 'function', re: /\b(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/g },
+        { kind: 'function', re: /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*=>)/g },
+        { kind: 'class', re: /\bclass\s+([A-Za-z_$][\w$]*)/g },
+        { kind: 'interface', re: /\binterface\s+([A-Za-z_$][\w$]*)/g },
+        { kind: 'type', re: /\btype\s+([A-Za-z_$][\w$]*)\s*=/g },
+        { kind: 'enum', re: /\benum\s+([A-Za-z_$][\w$]*)/g },
+        { kind: 'method', re: /^\s+(?:public\s+|private\s+|protected\s+|static\s+|async\s+|get\s+|set\s+)*([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{/g },
+        { kind: 'variable', re: /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)/g },
+      ],
+      python: [
+        { kind: 'function', re: /^\s*(?:async\s+)?def\s+([A-Za-z_]\w*)/g },
+        { kind: 'class', re: /^\s*class\s+([A-Za-z_]\w*)/g },
+        { kind: 'variable', re: /^([A-Za-z_]\w*)\s*=/g },
+      ],
+      go: [
+        { kind: 'function', re: /^\s*func\s+(?:\([^)]*\)\s*)?([A-Za-z_]\w*)/g },
+        { kind: 'type', re: /^\s*type\s+([A-Za-z_]\w*)/g },
+        { kind: 'variable', re: /^\s*(?:var|const)\s+([A-Za-z_]\w*)/g },
+      ],
+      rust: [
+        { kind: 'function', re: /^\s*(?:pub\s+)?(?:async\s+)?fn\s+([A-Za-z_]\w*)/g },
+        { kind: 'class', re: /^\s*(?:pub\s+)?(?:struct|enum|trait)\s+([A-Za-z_]\w*)/g },
+        { kind: 'type', re: /^\s*(?:pub\s+)?type\s+([A-Za-z_]\w*)/g },
+        { kind: 'variable', re: /^\s*(?:pub\s+)?(?:const|static)\s+([A-Za-z_]\w*)/g },
+      ],
+      clike: [
+        { kind: 'class', re: /\b(?:class|interface|enum|record|struct)\s+([A-Za-z_]\w*)/g },
+        { kind: 'method', re: /^\s*(?:(?:public|private|protected|static|final|abstract|synchronized|native|default)\s+)+[\w<>\[\],.?]+\s+([A-Za-z_]\w*)\s*\(/g },
+      ],
+      html: [
+        { kind: 'id', re: /\bid\s*=\s*["']([^"']+)["']/g },
+      ],
+      generic: [
+        { kind: 'function', re: /\b(?:function|def|fn|func)\s+([A-Za-z_$][\w$]*)/g },
+        { kind: 'class', re: /\b(?:class|struct|enum|interface|trait)\s+([A-Za-z_$][\w$]*)/g },
+        { kind: 'type', re: /\btype\s+([A-Za-z_$][\w$]*)\s*=/g },
+        { kind: 'variable', re: /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)/g },
+      ],
+    }
+
+    function addIntelEntry(index, entry) {
+      const list = index.get(entry.name)
+      if (!list) {
+        index.set(entry.name, [entry])
+        return
+      }
+      if (list.some((item) => item.offset === entry.offset && item.kind === entry.kind)) return
+      list.push(entry)
+    }
+
+    // Function parameters count as variables, so hovering an argument name or a
+    // parameter resolves too.
+    function scanIntelParams(index, line, lineStart, lineNumber) {
+      const patterns = [
+        /\b(?:function|def)\s+[A-Za-z_$][\w$]*\s*\(([^)]*)\)/g,
+        /\(([^)]*)\)\s*=>/g,
+        /\b([A-Za-z_$][\w$]*)\s*=>/g,
+      ]
+      for (const pattern of patterns) {
+        pattern.lastIndex = 0
+        let match
+        while ((match = pattern.exec(line))) {
+          const source = match[1]
+          if (!source) continue
+          const base = match.index + match[0].indexOf(source)
+          let cursor = 0
+          for (const part of source.split(',')) {
+            const nameMatch = /^\s*([A-Za-z_$][\w$]*)/.exec(part)
+            if (nameMatch && !INTEL_RESERVED.has(nameMatch[1])) {
+              addIntelEntry(index, {
+                name: nameMatch[1],
+                kind: 'parameter',
+                offset: lineStart + base + cursor + nameMatch[0].indexOf(nameMatch[1]),
+                line: lineNumber + 1,
+                source: line.trim(),
+              })
+            }
+            cursor += part.length + 1
+          }
+        }
+      }
+    }
+
+    function buildIntelIndex(text, language) {
+      const index = new Map()
+      const rules = INTEL_RULES[language] || INTEL_RULES.generic
+      const lines = String(text).split('\n')
+      let lineStart = 0
+      for (let lineNumber = 0; lineNumber < lines.length; lineNumber += 1) {
+        const line = lines[lineNumber]
+        for (const rule of rules) {
+          rule.re.lastIndex = 0
+          let match
+          while ((match = rule.re.exec(line))) {
+            const name = match[1]
+            if (!name || INTEL_RESERVED.has(name)) continue
+            addIntelEntry(index, {
+              name,
+              kind: rule.kind,
+              offset: lineStart + match.index + Math.max(0, match[0].lastIndexOf(name)),
+              line: lineNumber + 1,
+              source: line.trim(),
+            })
+          }
+        }
+        if (language === 'js' || language === 'python') scanIntelParams(index, line, lineStart, lineNumber)
+        lineStart += line.length + 1
+      }
+      return index
+    }
+
+    function lineOfOffset(text, offset) {
+      let line = 1
+      for (let index = 0; index < offset && index < text.length; index += 1) {
+        if (text.charCodeAt(index) === 10) line += 1
+      }
+      return line
+    }
+
+    // Nearest declaration before the use, then the first one after it.
+    function resolveIntel(index, name, fromOffset) {
+      const list = index.get(name)
+      if (!list || !list.length) return null
+      let before = null
+      for (const item of list) {
+        if (item.offset <= fromOffset && (!before || item.offset > before.offset)) before = item
+      }
+      return before || list[0]
+    }
+
+    function buildIntelSegments(text, index) {
+      const segments = []
+      const pattern = /[A-Za-z_$][\w$]*/g
+      let cursor = 0
+      let count = 0
+      let match
+      while ((match = pattern.exec(text))) {
+        if (count >= INTEL_MAX_SPANS) {
+          if (cursor < text.length) segments.push({ text: text.slice(cursor), start: cursor })
+          return segments
+        }
+        if (match.index > cursor) segments.push({ text: text.slice(cursor, match.index), start: cursor })
+        const name = match[0]
+        const declarations = index.get(name)
+        const previous = match.index > 0 ? text[match.index - 1] : ''
+        const navigable = Boolean(declarations && declarations.length)
+          || (previous === '#' && index.has(name))
+        segments.push({ text: name, start: match.index, name, navigable })
+        cursor = match.index + name.length
+        count += 1
+      }
+      if (cursor < text.length) segments.push({ text: text.slice(cursor), start: cursor })
+      return segments
     }
 
     function extOf(name) {
@@ -963,6 +1170,9 @@ window.__ModuleLoader__.load({
       const [findCase, setFindCase] = useState(false)
       const [findIndex, setFindIndex] = useState(0)
       const [findFocused, setFindFocused] = useState(false)
+      const [intelArmed, setIntelArmed] = useState(false)
+      const [intelHover, setIntelHover] = useState(null)
+      const [navDepth, setNavDepth] = useState(0)
       const inputRef = useRef(null)
       const editorRef = useRef(null)
       const findInputRef = useRef(null)
@@ -970,6 +1180,9 @@ window.__ModuleLoader__.load({
       const gutterRef = useRef(null)
       const markerRef = useRef(null)
       const activeLineRef = useRef(1)
+      const intelLayerRef = useRef(null)
+      const editorViewRef = useRef(null)
+      const navStackRef = useRef([])
       const panelRef = useRef(null)
       const generation = useRef(0)
       const lastFocus = useRef(null)
@@ -994,6 +1207,10 @@ window.__ModuleLoader__.load({
         setFindQuery('')
         setFindIndex(0)
         setFindFocused(false)
+        setIntelArmed(false)
+        setIntelHover(null)
+        navStackRef.current = []
+        setNavDepth(0)
         const session = sessionOf(ctx)
         if (session.cwd) setRoot(session.cwd)
         let cancelled = false
@@ -1170,6 +1387,13 @@ window.__ModuleLoader__.load({
         if (from < draft.length) nodes.push(draft.slice(from))
         return nodes
       }, [draft, findResult, findIndex, mirrorOn])
+      const intel = useMemo(() => {
+        if (!intelArmed || !file || file.kind !== 'text' || findOpen) return null
+        if (!draft || draft.length > INTEL_MAX_CHARS) return null
+        const language = intelLanguageOf(file.path)
+        const index = buildIntelIndex(draft, language)
+        return { language, index, segments: buildIntelSegments(draft, index) }
+      }, [intelArmed, file, draft, findOpen])
 
       // Keep the current match inside the list as the draft or the query changes.
       useEffect(() => {
@@ -1184,6 +1408,37 @@ window.__ModuleLoader__.load({
         input.focus()
         input.select()
       }, [findOpen])
+
+      // ⌘ (or Ctrl) arms the identifier layer: link affordances appear only while
+      // the modifier is held, so ordinary clicks keep selecting text.
+      useEffect(() => {
+        if (view !== 'editor' || !file || file.kind !== 'text') return undefined
+        function onKeyDown(event) {
+          if (findOpen) return
+          if (event.key === 'Meta' || event.key === 'Control' || event.metaKey || event.ctrlKey) {
+            setIntelArmed(true)
+          }
+        }
+        function onKeyUp(event) {
+          if (event.key !== 'Meta' && event.key !== 'Control') return
+          setIntelArmed(false)
+          setIntelHover(null)
+        }
+        function onBlur() {
+          setIntelArmed(false)
+          setIntelHover(null)
+        }
+        window.addEventListener('keydown', onKeyDown, true)
+        window.addEventListener('keyup', onKeyUp, true)
+        window.addEventListener('blur', onBlur)
+        return () => {
+          window.removeEventListener('keydown', onKeyDown, true)
+          window.removeEventListener('keyup', onKeyUp, true)
+          window.removeEventListener('blur', onBlur)
+        }
+      }, [view, file, findOpen])
+
+      useEffect(() => { setIntelHover(null) }, [draft, intelArmed])
 
       // Bring the active match into view. Horizontal alignment happens after the
       // mirror has painted, because only the rendered <mark> knows where the
@@ -1257,6 +1512,8 @@ window.__ModuleLoader__.load({
         setFindOpen(false)
         setFindQuery('')
         setFindIndex(0)
+        navStackRef.current = []
+        setNavDepth(0)
         try {
           const data = await post('/dsh-file-finder/read', { root, path: item.path })
           const text = typeof data.text === 'string' ? data.text : ''
@@ -1381,6 +1638,12 @@ window.__ModuleLoader__.load({
           openFind()
           return
         }
+        if (event.key === 'Escape' && intelHover) {
+          event.preventDefault()
+          event.stopPropagation()
+          setIntelHover(null)
+          return
+        }
         if (event.key === 'Escape') {
           event.preventDefault()
           event.stopPropagation()
@@ -1436,6 +1699,9 @@ window.__ModuleLoader__.load({
         if (gutterRef.current) {
           gutterRef.current.style.transform = 'translate3d(0,' + String(-top) + 'px,0)'
         }
+        if (intelLayerRef.current) {
+          intelLayerRef.current.style.transform = 'translate3d(' + String(-left) + 'px,' + String(-top) + 'px,0)'
+        }
         positionActiveLine()
       }
 
@@ -1479,6 +1745,18 @@ window.__ModuleLoader__.load({
 
       function onEditorScroll(event) {
         syncEditorScroll(event.currentTarget)
+        if (intelHover) setIntelHover(null)
+      }
+
+      // The layer's tokens capture the pointer while ⌘ is held; a wheel over one
+      // still belongs to the textarea.
+      function onIntelWheel(event) {
+        const area = editorRef.current
+        if (!area) return
+        area.scrollTop += event.deltaY
+        area.scrollLeft += event.deltaX
+        syncEditorScroll(area)
+        if (intelHover) setIntelHover(null)
       }
 
       function focusFind() {
@@ -1524,8 +1802,78 @@ window.__ModuleLoader__.load({
         }
       }
 
+      function clearIntelHover() {
+        setIntelHover(null)
+      }
+
+      function intelKindLabel(kind) {
+        return t('intel' + kind.charAt(0).toUpperCase() + kind.slice(1))
+      }
+
+      function onIntelEnter(event, segment) {
+        if (!intel || !segment.navigable) return
+        const declaration = resolveIntel(intel.index, segment.name, segment.start)
+        if (!declaration) return
+        const view = editorViewRef.current
+        const box = event.currentTarget.getBoundingClientRect()
+        const rect = view ? view.getBoundingClientRect() : { left: 0, top: 0, width: 0, height: 0 }
+        const width = Math.max(0, rect.width)
+        const height = Math.max(0, rect.height)
+        const x = Math.max(8, Math.min(box.left - rect.left, Math.max(8, width - 300)))
+        let y = box.bottom - rect.top + 6
+        if (y + 92 > height) y = Math.max(6, box.top - rect.top - 92)
+        setIntelHover({
+          name: segment.name,
+          kind: declaration.kind,
+          line: declaration.line,
+          source: declaration.source,
+          x: x,
+          y: y,
+        })
+      }
+
+      function onIntelDown(event, segment) {
+        if (event.button !== 0 || !(event.metaKey || event.ctrlKey)) return
+        if (!intel || !segment.navigable) return
+        const declaration = resolveIntel(intel.index, segment.name, segment.start)
+        if (!declaration || declaration.offset === segment.start) return
+        event.preventDefault()
+        event.stopPropagation()
+        jumpIntel(declaration.offset, true)
+      }
+
+      function jumpIntel(offset, push) {
+        const area = editorRef.current
+        if (!area) return
+        if (push) {
+          navStackRef.current.push({ offset: area.selectionStart || 0 })
+          setNavDepth(navStackRef.current.length)
+        }
+        area.focus()
+        area.setSelectionRange(offset, offset)
+        const line = lineOfOffset(draft, offset)
+        area.scrollTop = Math.max(0, (line - 1) * EDITOR_LINE_HEIGHT - area.clientHeight / 2)
+        trackActiveLine()
+        syncEditorScroll(area)
+        setIntelHover(null)
+      }
+
+      function navBack() {
+        const stack = navStackRef.current
+        const last = stack.pop()
+        if (!last) return
+        setNavDepth(stack.length)
+        jumpIntel(last.offset, false)
+      }
+
       function onEditorKey(event) {
         const primary = event.metaKey || event.ctrlKey
+        if (primary && event.key === '[') {
+          event.preventDefault()
+          event.stopPropagation()
+          navBack()
+          return
+        }
         if (primary && event.key.toLowerCase() === 's') {
           event.preventDefault()
           event.stopPropagation()
@@ -1797,7 +2145,7 @@ window.__ModuleLoader__.load({
       function editorView() {
         const name = file ? baseName(file.path) : t('title')
         const state = dirty ? 'dirty' : status === t('conflict') ? 'conflict' : 'saved'
-        return h('div', { className: 'dff-view', key: 'editor' },
+        return h('div', { className: 'dff-view', key: 'editor', ref: editorViewRef },
           h('div', { className: 'dff-head dff-head-editor' },
             h('button', {
               type: 'button', className: 'dff-icon-btn', 'aria-label': t('back'),
@@ -1811,6 +2159,10 @@ window.__ModuleLoader__.load({
               h('span', { className: 'dff-dot', 'aria-hidden': 'true' }),
               dirty ? t('dirty') : status === t('conflict') ? t('conflict') : status === t('saving') ? t('saving') : t('saved')),
             h('div', { className: 'dff-editor-actions' },
+              navDepth ? h('button', {
+                type: 'button', className: 'dff-icon-btn', 'data-dff-nav-back': 'true',
+                'aria-label': t('navBack'), title: t('navBack'), onClick: navBack,
+              }, h(BackIcon, { size: 16 })) : null,
               h('button', { type: 'button', className: 'dff-icon-btn', 'aria-label': t('openInSidebar'), title: t('openInSidebar'), disabled: busy, onClick: previewCurrent }, h(SidebarIcon, { size: 16 })),
               h('button', { type: 'button', className: 'dff-icon-btn', 'aria-label': t('reload'), title: t('reload'), disabled: busy, onClick: reloadFile }, h(RefreshIcon, { size: 15 })),
               h('button', { type: 'button', className: 'dff-save', disabled: busy || !dirty, onClick: saveFile },
@@ -1931,7 +2283,31 @@ window.__ModuleLoader__.load({
                   onClick: trackActiveLine,
                   onScroll: onEditorScroll,
                   'aria-label': file ? file.path : t('title'),
-                })))),
+                }),
+                intel ? h('pre', {
+                  className: 'dff-intel-layer', 'aria-hidden': 'true', 'data-dff-intel-layer': 'true',
+                  onWheel: onIntelWheel,
+                },
+                  h('code', { ref: intelLayerRef, className: 'dff-intel-inner' },
+                    intel.segments.map((segment, index) => segment.name
+                      ? h('span', {
+                        key: 'i' + String(index),
+                        className: segment.navigable ? 'dff-intel-token is-navigable' : 'dff-intel-token',
+                        'data-name': segment.name,
+                        'data-start': segment.start,
+                        onMouseEnter: (event) => onIntelEnter(event, segment),
+                        onMouseLeave: clearIntelHover,
+                        onMouseDown: (event) => onIntelDown(event, segment),
+                      }, segment.text)
+                      : segment.text))) : null))),
+          intelHover ? h('div', {
+            className: 'dff-intel-tip', 'data-dff-intel-tip': 'true',
+            style: { left: intelHover.x + 'px', top: intelHover.y + 'px' },
+          },
+            h('span', { className: 'dff-intel-kind' }, intelKindLabel(intelHover.kind)),
+            h('strong', null, intelHover.name),
+            intelHover.source ? h('code', null, intelHover.source) : null,
+            h('span', { className: 'dff-intel-line' }, textOf(t, 'intelDefinition', { line: intelHover.line }))) : null,
           h('div', { className: 'dff-foot' },
             h('span', { className: 'dff-hints' },
               h('span', { className: 'dff-hint' }, h(Keycaps, { keys: mac ? ['⌘', 'S'] : ['Ctrl', 'S'] }), t('hintSave')),
@@ -2184,7 +2560,7 @@ window.__ModuleLoader__.load({
           0 24px 64px -12px rgba(0, 0, 0, 0.55);
       }
 
-      .dff-view { display: flex; flex-direction: column; flex: 1; min-height: 0; animation: dff-view-in 200ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+      .dff-view { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; animation: dff-view-in 200ms cubic-bezier(0.16, 1, 0.3, 1) both; }
 
       /* ── Header ───────────────────────────────────────────────────────── */
       .dff-head {
@@ -2653,6 +3029,45 @@ window.__ModuleLoader__.load({
       .dff-editor::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 10px; background-clip: content-box; background-color: var(--dsw-alias-scrollbar-bg-l1); }
       .dff-editor::-webkit-scrollbar-thumb:hover { background-color: var(--dsw-alias-scrollbar-hover-l1); }
 
+
+
+      /* ── ⌘ identifier layer ───────────────────────────────────────────── */
+      .dff-intel-layer {
+        position: absolute; inset: 0; z-index: 2;
+        margin: 0; padding: 14px 16px;
+        overflow: hidden; pointer-events: none; color: transparent;
+        font-family: var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+        font-size: 12.5px; line-height: 20px; tab-size: 2;
+        white-space: pre;
+      }
+      .dff-intel-inner { display: block; font: inherit; line-height: inherit; tab-size: inherit; will-change: transform; }
+      .dff-intel-token { color: transparent; }
+      .dff-intel-token.is-navigable { pointer-events: auto; cursor: pointer; }
+      .dff-intel-token.is-navigable:hover {
+        text-decoration: underline dotted;
+        text-decoration-color: var(--dsw-alias-state-business-primary);
+        text-decoration-thickness: 1px;
+        text-underline-offset: 3px;
+        background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 10%, transparent);
+        border-radius: 3px;
+      }
+      .dff-intel-tip {
+        position: absolute; z-index: 8; display: flex; flex-direction: column; gap: 3px;
+        max-width: 300px; padding: 9px 11px;
+        border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px;
+        background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 96%, transparent);
+        -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+        box-shadow: 0 12px 30px -18px color-mix(in srgb, #0f1115 55%, transparent);
+        pointer-events: none;
+      }
+      .dff-intel-kind { font-size: 10px; line-height: 13px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--dsw-alias-state-business-primary); }
+      .dff-intel-tip strong { font-size: 12.5px; line-height: 17px; color: var(--dsw-alias-label-primary); }
+      .dff-intel-tip code {
+        font-family: var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+        font-size: 11px; line-height: 15px; color: var(--dsw-alias-label-secondary);
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 276px;
+      }
+      .dff-intel-line { font-size: 10px; line-height: 14px; color: var(--dsw-alias-label-tertiary); }
 
       /* ── Built-in viewer ──────────────────────────────────────────────── */
       .dff-viewer-body { display: flex; flex-direction: column; flex: 1; min-height: 0; padding: 10px 12px 12px; }

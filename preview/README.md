@@ -190,6 +190,7 @@ preview/
   screenshot.mjs     server + Playwright runner, validation, manifest, table
   find-check.mjs     editor line-gutter + in-file find checks (`npm run check:find`)
   viewer-check.mjs   image/video/audio/PDF/HTML/Markdown viewer checks (`npm run check:viewer`)
+  intel-check.mjs    ⌘ hover / same-file jump / back checks (`npm run check:intel`)
   bot-check.mjs      DS Bot bridge checks (`npm run check:bot`)
   vendor/           React 18.3.1 UMD builds
   shots/            generated screenshots + manifest.json

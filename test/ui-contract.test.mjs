@@ -121,3 +121,16 @@ test('the built-in viewer renders media, documents and HTML', () => {
   assert.match(source, /rewriteMarkdownAssets/)
   assert.match(source, /function viewerView\(\)/)
 })
+
+test('holding Cmd resolves same-file identifiers and navigates', () => {
+  assert.match(source, /const INTEL_MAX_CHARS = 200 \* 1024/)
+  assert.match(source, /function buildIntelIndex\(/)
+  assert.match(source, /function buildIntelSegments\(/)
+  assert.match(source, /function resolveIntel\(/)
+  assert.match(source, /function jumpIntel\(/)
+  assert.match(source, /function navBack\(/)
+  assert.match(source, /data-dff-intel-layer/)
+  assert.match(source, /data-dff-intel-tip/)
+  assert.match(source, /data-dff-nav-back/)
+  assert.match(source, /event\.key === '\['/)
+})
