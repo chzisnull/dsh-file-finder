@@ -64,6 +64,7 @@ test('the listing puts folders first and applies the search ignore rules', async
   assert.deepEqual(data.entries.map((entry) => entry.type), ['dir', 'dir', 'file', 'file'])
   assert.equal(data.total, 4)
   assert.equal(data.truncated, false)
+  assert.deepEqual(data.crumbs, [{ label: 'workspace', path: '/workspace' }])
 })
 
 test('a nested directory reports its parent and its own entries', async () => {
@@ -71,6 +72,10 @@ test('a nested directory reports its parent and its own entries', async () => {
   assert.equal(data.path, `${ROOT}/src`)
   assert.equal(data.parent, ROOT)
   assert.deepEqual(data.entries.map((entry) => entry.name), ['api', 'app.vue', 'main.ts'])
+  assert.deepEqual(data.crumbs, [
+    { label: 'workspace', path: '/workspace' },
+    { label: 'src', path: '/workspace/src' },
+  ])
 })
 
 test('an empty directory lists nothing without failing', async () => {

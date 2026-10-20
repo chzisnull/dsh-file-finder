@@ -123,12 +123,16 @@ test('the built-in viewer renders media, documents and HTML', () => {
 })
 
 test('holding Cmd resolves same-file identifiers and navigates', () => {
-  assert.match(source, /const INTEL_MAX_CHARS = 200 \* 1024/)
+  assert.match(source, /const INTEL_MAX_BYTES = 200 \* 1024/)
+  assert.match(source, /function utf8Length\(/)
   assert.match(source, /function buildIntelIndex\(/)
   assert.match(source, /function buildIntelSegments\(/)
   assert.match(source, /function resolveIntel\(/)
   assert.match(source, /function jumpIntel\(/)
   assert.match(source, /function navBack\(/)
+  // The back stack stores the clicked identifier, not the stale caret.
+  assert.match(source, /jumpIntel\(declaration\.offset, true, segment\.start\)/)
+  assert.match(source, /function adjustNavStack\(/)
   assert.match(source, /data-dff-intel-layer/)
   assert.match(source, /data-dff-intel-tip/)
   assert.match(source, /data-dff-nav-back/)
@@ -136,16 +140,17 @@ test('holding Cmd resolves same-file identifiers and navigates', () => {
 })
 
 test('the editor colours syntax without giving up the textarea', () => {
-  assert.match(source, /const TOKEN_MAX_CHARS = 200 \* 1024/)
+  assert.match(source, /const TOKEN_MAX_BYTES = 200 \* 1024/)
   assert.match(source, /const TOKEN_BUFFER_LINES = 40/)
-  assert.match(source, /function colorLanguageOf\(/)
+  assert.match(source, /const LANGUAGE_BY_EXTENSION = /)
+  assert.match(source, /function languageOf\(/)
   assert.match(source, /function scanTokens\(/)
   assert.match(source, /const TOKEN_SPECS = \{/)
   // Markup files colour what hides inside them.
   assert.match(source, /function scanMarkupTokens\(text, framework\)/)
   assert.match(source, /scanMarkupTokens\(text, 'vue'\)/)
   assert.match(source, /scanMarkupTokens\(text, 'svelte'\)/)
-  assert.match(source, /const FENCE_LANGUAGES = \{/)
+  assert.match(source, /function fenceLanguageOf\(/)
   assert.match(source, /function findMatchingBrace\(/)
   assert.match(source, /function measureTokenWindow\(/)
   assert.match(source, /data-dff-token-layer/)
@@ -157,4 +162,17 @@ test('the editor colours syntax without giving up the textarea', () => {
   // Both DSH themes get their own palette.
   assert.match(source, /--dff-syn-keyword/)
   assert.match(source, /body\[data-ds-dark-theme\] \.dff-code \{/)
+})
+
+test('the panel browses directories and keeps one action table on the host', () => {
+  assert.match(source, /const browsing = Boolean\(request\.open && view === 'search' && !query\.trim\(\) && root\)/)
+  assert.match(source, /data-dff-browse/)
+  assert.match(source, /data-dff-crumbs/)
+  assert.match(source, /emptyBrowseState/)
+  assert.match(source, /isInsidePath\(/)
+  const host = readFileSync(new URL('../index.js', import.meta.url), 'utf8')
+  assert.match(host, /const ACTIONS = \{/)
+  assert.match(host, /function isIgnoredDir\(/)
+  assert.match(host, /crumbs,/)
+  assert.doesNotMatch(host, /const routes = \['roots'/)
 })

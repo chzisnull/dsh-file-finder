@@ -52,9 +52,18 @@
     if (path === '/dsh-file-finder/list') {
       var dir = String(body.path || '/ws')
       var entries = LIST[dir] || []
+      var crumbs = [{ label: 'ws', path: '/ws' }]
+      var accumulated = '/ws'
+      if (dir !== '/ws') {
+        dir.slice('/ws'.length).replace(/^\/+/, '').split('/').forEach(function (segment) {
+          if (!segment) return
+          accumulated = accumulated + '/' + segment
+          crumbs.push({ label: segment, path: accumulated })
+        })
+      }
       return Promise.resolve(response({
         ok: true, root: '/ws', path: dir, parent: PARENT[dir] === undefined ? null : PARENT[dir],
-        total: entries.length, truncated: false, entries: entries,
+        total: entries.length, truncated: false, entries: entries, crumbs: crumbs,
       }))
     }
     if (path === '/dsh-file-finder/search-name') {
@@ -187,6 +196,15 @@
       await key('Enter')
       await waitFor(function () { return rowNames().join(',') === 'api,components,App.vue,main.ts' }, 4000)
       check('Enter enters the selected folder', rowNames().join(',') === 'api,components,App.vue,main.ts', rowNames().join(','))
+
+      // ── The listing survives a mode switch ─────────────────────────────
+      document.querySelector('[data-dff-mode="content"]').click()
+      await new Promise(function (resolve) { setTimeout(resolve, 250) })
+      check('content mode with an empty query still browses',
+        rows().length === 4 && Boolean(document.querySelector('[data-dff-crumbs]')),
+        rows().length + ' rows, crumbs=' + Boolean(document.querySelector('[data-dff-crumbs]')))
+      document.querySelector('[data-dff-mode="name"]').click()
+      await new Promise(function (resolve) { setTimeout(resolve, 250) })
 
       // ── Typing falls back to search, clearing returns to the folder ────
       setInputValue(input, 'main')

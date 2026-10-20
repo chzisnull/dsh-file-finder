@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Browser check for the syntax colours in the built-in editor.
+ * Browser check for the empty-query directory browser.
  *
  * Serves the repository and mounts `preview/browse-check.html`, which opens the
  * palette against a fake workspace tree. It verifies that an empty query lists

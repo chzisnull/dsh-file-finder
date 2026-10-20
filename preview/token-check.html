@@ -76,7 +76,7 @@
       '<template>',
       '  <div class="wrap">',
       '    <span>{{ formatDate(row.createdAt) }}</span>',
-      '    <el-button @click="openDialog(row)">{{ row.title }}</el-button>',
+      '    <el-button :type="row.type" :class="{ active: isOn }" @click="openDialog(row)">{{ row.title }}</el-button>',
       '  </div>',
       '</template>',
       '',
@@ -249,6 +249,15 @@
       return null
     }
 
+    function findSpanBefore(value, type, before) {
+      var nodes = document.querySelectorAll('[data-dff-token-layer] [data-tok]')
+      for (var index = 0; index < nodes.length; index += 1) {
+        var start = Number(nodes[index].getAttribute('data-start'))
+        if (nodes[index].textContent === value && (!type || nodes[index].getAttribute('data-tok') === type) && start < before) return nodes[index]
+      }
+      return null
+    }
+
     function colourOf(node) {
       return node ? getComputedStyle(node).color : ''
     }
@@ -318,23 +327,23 @@
         Document ? 'const → ' + (findSpan('const', 'keyword') ? 'keyword' : 'plain') : '')
 
       // ── Vue / Svelte: template, script, style and expressions ───────────
-      await openFile('App.vue')
+      var vueArea = await openFile('App.vue')
       await waitFor(function () { return firstSpan('tag') }, 4000)
+      var scriptAt = vueArea.value.indexOf('<script')
       check('vue template tags are coloured', Boolean(firstSpan('tag')))
       check('vue script keywords are coloured', Boolean(findSpan('function', 'keyword')))
-      check('vue script methods are coloured', Boolean(findSpan('openDialog', 'function')))
+      check('vue script methods are coloured', Boolean(findSpanBefore('openDialog', 'function', vueArea.value.length + 1)))
       check('vue script types are coloured', Boolean(findSpan('string', 'type')))
-      check('vue template expressions are coloured', Boolean(findSpan('formatDate', 'function')),
-        String(findSpan('formatDate', 'function') ? 'function' : 'plain'))
-      check('vue directive values are coloured', (function () {
-        var nodes = document.querySelectorAll('[data-dff-token-layer] [data-tok="function"]')
-        for (var index = 0; index < nodes.length; index += 1) {
-          if (nodes[index].textContent === 'openDialog') return true
-        }
-        return false
-      })())
-      check('vue style blocks are coloured as css', Boolean(findSpan('display', 'property')) ||
-        Boolean(findSpan('display', 'plain')), 'display')
+      check('vue template expressions are coloured',
+        Boolean(findSpanBefore('formatDate', 'function', scriptAt)),
+        String(findSpanBefore('formatDate', 'function', scriptAt) ? 'function before <script>' : 'not coloured'))
+      check('vue directive values are coloured as code',
+        Boolean(findSpanBefore('openDialog', 'function', scriptAt)),
+        String(findSpanBefore('openDialog', 'function', scriptAt) ? 'openDialog is code in the template' : 'still a string'))
+      check('vue bound attribute values are not strings',
+        !Array.prototype.some.call(document.querySelectorAll('[data-dff-token-layer] [data-tok="string"]'), function (node) {
+          return node.textContent.indexOf('isOn') !== -1 || node.textContent.indexOf('active:') !== -1
+        }), 'no string token for :class')
       check('vue style properties are coloured', Boolean(findSpan('display', 'property')))
 
       await openFile('App.svelte')
@@ -372,6 +381,19 @@
       check('scrolled tokens sit inside the visible pane',
         Boolean(box) && box.height > 0 && box.top >= pane.top - 2 && box.bottom <= pane.bottom + 2,
         box ? Math.round(box.top) + '..' + Math.round(box.bottom) + ' in ' + Math.round(pane.top) + '..' + Math.round(pane.bottom) : 'no span')
+
+      // The colour layer remounts after an IME composition; it must keep the
+      // offset of an already scrolled editor instead of painting from line 1.
+      longArea.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))
+      await new Promise(function (resolve) { setTimeout(resolve, 120) })
+      longArea.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }))
+      await waitFor(function () { return document.querySelector('[data-dff-token-layer]') }, 4000)
+      await new Promise(function (resolve) { setTimeout(resolve, 120) })
+      var tokenInner = document.querySelector('[data-dff-token-layer] code')
+      var expectedOffset = String(-longArea.scrollTop) + 'px'
+      check('a remounted colour layer keeps the scroll offset',
+        Boolean(tokenInner) && tokenInner.style.transform.indexOf(expectedOffset) !== -1,
+        tokenInner ? tokenInner.style.transform + ' vs ' + longArea.scrollTop : 'no layer')
 
       // ── Over budget: degrade to plain text ──────────────────────────────
       await openFile('huge.ts')

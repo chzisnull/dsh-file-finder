@@ -110,6 +110,7 @@ npm run check:find
 npm run check:viewer
 npm run check:intel
 npm run check:tokens
+npm run check:browse
 ```
 
 The DS Bot bridge also has a browser check that runs the real key handler against DS Bot's real selectors, with and without `ds-bot` in the boot graph:

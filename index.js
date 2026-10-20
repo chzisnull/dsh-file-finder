@@ -243,7 +243,7 @@ async function walkFiles(ctx, rootTarget, maxFiles, signal, visit, extraIgnore =
     }
     for (const entry of entries) {
       if (entry.type === 'directory') {
-        if (!IGNORED_DIRS.has(entry.name) && !extraIgnore.includes(entry.name)) stack.push(entry.target)
+        if (!isIgnoredDir(entry.name, extraIgnore)) stack.push(entry.target)
         continue
       }
       if (entry.type !== 'file' || SKIP_FILES.has(entry.name)) continue
@@ -356,6 +356,10 @@ async function searchContent(ctx, rootPath, query, signal, options) {
 
 // One directory at a time, for the panel's browse mode. Same ignore rules and
 // containment as search, so a folder that search skips is not browsable either.
+function isIgnoredDir(name, extraIgnore) {
+  return IGNORED_DIRS.has(name) || (Array.isArray(extraIgnore) && extraIgnore.includes(name))
+}
+
 function parentPathOf(displayPath) {
   const normalized = String(displayPath || '').replace(/\\/g, '/').replace(/\/+$/, '')
   const cut = normalized.lastIndexOf('/')
@@ -380,7 +384,7 @@ export async function listDirectory(ctx, rootPath, dirPath, signal, options) {
   for (const entry of raw) {
     if (!entry || typeof entry.name !== 'string') continue
     if (entry.type === 'directory') {
-      if (IGNORED_DIRS.has(entry.name) || prefs.extraIgnore.includes(entry.name)) continue
+      if (isIgnoredDir(entry.name, prefs.extraIgnore)) continue
       dirs.push({ name: entry.name, path: visiblePath(ctx, entry.target), type: 'dir' })
       continue
     }
@@ -393,11 +397,22 @@ export async function listDirectory(ctx, rootPath, dirPath, signal, options) {
   const entries = dirs.concat(files)
   const rootDisplay = visiblePath(ctx, root)
   const display = visiblePath(ctx, target)
+  const separator = display.includes('\\') && !display.includes('/') ? '\\' : '/'
+  const normalizedRoot = rootDisplay.replace(/[\\/]+$/, '')
+  const relative = display === rootDisplay ? '' : display.slice(normalizedRoot.length).replace(/^[\\/]+/, '')
+  const segments = relative ? relative.split(/[\\/]+/) : []
+  const crumbs = [{ label: normalizedRoot.split(/[\\/]/).pop() || normalizedRoot, path: normalizedRoot }]
+  let accumulated = normalizedRoot
+  for (const segment of segments) {
+    accumulated = accumulated + separator + segment
+    crumbs.push({ label: segment, path: accumulated })
+  }
   return {
     ok: true,
     root: rootDisplay,
     path: display,
     parent: display === rootDisplay ? null : parentPathOf(display),
+    crumbs,
     total: entries.length,
     truncated: entries.length > LIST_ENTRY_CAP,
     entries: entries.slice(0, LIST_ENTRY_CAP),
@@ -591,24 +606,51 @@ async function saveFile(ctx, rootPath, filePath, content, version, signal) {
   }
 }
 
+// One table drives the HTTP routes, the agent tool enum and dispatch, so an
+// action cannot exist on one surface and be forgotten on another.
+const ACTIONS = {
+  roots: {
+    route: 'roots',
+    run: ({ ctx, agent }) => ({ ok: true, roots: collectRoots(ctx), current: cwdOf(agent) }),
+  },
+  list: {
+    route: 'list',
+    run: ({ ctx, root, args, signal }) => listDirectory(ctx, root, args.path, signal, args.options),
+  },
+  'search-name': {
+    route: 'search-name',
+    run: ({ ctx, root, args, signal }) => searchName(ctx, root, args.query, signal, args.options),
+  },
+  'search-content': {
+    route: 'search-content',
+    run: ({ ctx, root, args, signal }) => searchContent(ctx, root, args.query, signal, args.options),
+  },
+  read: {
+    route: 'read',
+    run: ({ ctx, root, args, signal }) => readFile(ctx, root, args.path, signal),
+  },
+  save: {
+    route: 'write',
+    bodyLimit: 2_000_000,
+    run: ({ ctx, root, args, signal }) => saveFile(ctx, root, args.path, args.content, args.version, signal),
+  },
+}
+
 async function dispatch(ctx, args, agent, signal) {
   const action = args && args.action
+  const spec = ACTIONS[action]
+  if (!spec) throw new Error('未知操作')
   const root = (args && args.root) || cwdOf(agent)
-  if (action === 'roots') return { ok: true, roots: collectRoots(ctx), current: cwdOf(agent) }
-  if (action === 'search-name') return searchName(ctx, root, args.query, signal, args.options)
-  if (action === 'search-content') return searchContent(ctx, root, args.query, signal, args.options)
-  if (action === 'list') return listDirectory(ctx, root, args.path, signal, args.options)
-  if (action === 'read') return readFile(ctx, root, args.path, signal)
-  if (action === 'save') return saveFile(ctx, root, args.path, args.content, args.version, signal)
-  throw new Error('未知操作')
+  return spec.run({ ctx, root, signal, args: args || {}, agent })
 }
 
 function registerRoutes(ctx) {
-  const routes = ['roots', 'list', 'search-name', 'search-content', 'read', 'write']
-  for (const name of routes) {
+  for (const [action, spec] of Object.entries(ACTIONS)) {
+    const route = spec.route
+    const bodyLimit = spec.bodyLimit || 16_000
     ctx.effect(() => ctx.webServer.register({
       kind: 'exact',
-      path: `/dsh-file-finder/${name}`,
+      path: `/dsh-file-finder/${route}`,
       handler: async (req, res) => {
         const connection = ctx.get('connection')
         const rejected = rejectionStatus(connection, req)
@@ -628,15 +670,14 @@ function registerRoutes(ctx) {
           if (!res.writableEnded) controller.abort()
         })
         try {
-          const body = await readJson(req, name === 'write' ? 2_000_000 : 16_000)
-          const action = name === 'write' ? 'save' : name
+          const body = await readJson(req, bodyLimit)
           const value = await dispatch(ctx, { ...body, action }, undefined, controller.signal)
           if (!res.writableEnded) sendJson(res, 200, value)
         } catch (error) {
           if (!res.writableEnded) sendJson(res, 200, { ok: false, error: errorText(error) })
         }
       },
-    }), `dsh-file-finder: /dsh-file-finder/${name}`)
+    }), `dsh-file-finder: /dsh-file-finder/${route}`)
   }
   // The built-in viewer's read-only byte route: images, video, audio, PDFs and
   // HTML previews (plus the assets a previewed page asks for).
@@ -680,12 +721,12 @@ function registerTool(ctx) {
       properties: {
         action: {
           type: 'string',
-          enum: ['roots', 'search-name', 'search-content', 'read', 'save'],
-          description: 'roots lists workspace directories. search-name matches file names. search-content matches text. read and save operate on one UTF-8 file inside root.',
+          enum: Object.keys(ACTIONS),
+          description: 'roots lists workspace directories. list lists one directory inside root. search-name matches file names. search-content matches text. read and save operate on one UTF-8 file inside root.',
         },
         root: { type: 'string', description: 'Workspace directory. Omit to use the current session directory when the caller has one.' },
         query: { type: 'string', description: 'Name fragment, or content text of at least 2 characters.' },
-        path: { type: 'string', description: 'File path inside root for read or save.' },
+        path: { type: 'string', description: 'File path inside root for read or save, or the directory path for list.' },
         content: { type: 'string', description: 'Full replacement text for save.' },
         version: { type: 'string', description: 'Version from the latest read. Required to avoid overwriting a newer file.' },
       },

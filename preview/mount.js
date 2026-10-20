@@ -338,8 +338,17 @@ export function rankName(query, displayPath, options = {}) {
       const dir = String(body.path || CWD)
       const entries = BROWSE_TREE[dir] || []
       const parent = dir === CWD ? null : dir.slice(0, dir.lastIndexOf('/'))
+      const crumbs = [{ label: CWD.slice(CWD.lastIndexOf('/') + 1), path: CWD }]
+      if (dir !== CWD) {
+        let accumulated = CWD
+        for (const segment of dir.slice(CWD.length).replace(/^\/+/, '').split('/')) {
+          if (!segment) continue
+          accumulated = `${accumulated}/${segment}`
+          crumbs.push({ label: segment, path: accumulated })
+        }
+      }
       return jsonResponse({
-        ok: true, root: CWD, path: dir, parent, total: entries.length, truncated: false, entries,
+        ok: true, root: CWD, path: dir, parent, total: entries.length, truncated: false, entries, crumbs,
       }, 60)
     }
     if (path === '/dsh-file-finder/search-name') {

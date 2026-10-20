@@ -111,6 +111,7 @@ npm run check:find
 npm run check:viewer
 npm run check:intel
 npm run check:tokens
+npm run check:browse
 ```
 
 DS Bot 桥接还有一个浏览器检查，用 DS Bot 真实的类名跑一遍按键逻辑，分别验证启动清单里有 / 没有 `ds-bot` 两种情况：

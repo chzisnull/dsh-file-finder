@@ -1,6 +1,6 @@
 {
   "name": "dsh-file-finder",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "File finder for DSH: search by name or content, preview images, video, audio, PDF, HTML and Markdown, and edit text files with syntax colours, line numbers and in-file find.",
   "license": "MIT",
   "type": "module",

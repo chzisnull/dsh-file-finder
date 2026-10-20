@@ -24,8 +24,17 @@
       '<h2 id="section">Section</h2>',
       '',
     ].join('\n')
+    var LONG = []
+    for (var lineNo = 1; lineNo <= 300; lineNo += 1) {
+      LONG.push('export function alpha' + lineNo + '(value: number) {')
+      LONG.push('  return value + ' + lineNo)
+      LONG.push('}')
+      LONG.push('')
+    }
+    LONG = LONG.join('\n')
     var FILES = {
       '/ws/sample.ts': { kind: 'text', text: TEXT, bytes: TEXT.length },
+      '/ws/long.ts': { kind: 'text', text: LONG, bytes: LONG.length },
       '/ws/page.html': { kind: 'html', text: ANCHORS, bytes: ANCHORS.length },
     }
     function response(body) {
@@ -180,7 +189,7 @@
 
       back.click()
       await new Promise(function (resolve) { setTimeout(resolve, 60) })
-      check('back returns to the previous location', area.selectionStart === 0, String(area.selectionStart))
+      check('back returns to the clicked identifier', area.selectionStart === usageOffset, area.selectionStart + ' vs ' + usageOffset)
 
       // A token without a declaration stays inert.
       var inert = Array.prototype.filter.call(
@@ -197,6 +206,37 @@
       disarm()
       await new Promise(function (resolve) { setTimeout(resolve, 120) })
       check('releasing ⌘ removes the layer', !document.querySelector('[data-dff-intel-layer]'))
+
+      // The identifier layer mounts when ⌘ is pressed; it must pick up the
+      // scroll offset of an already scrolled editor (not start at the top).
+      var longArea = await openFile('long.ts')
+      longArea.focus()
+      longArea.scrollTop = 200 * 20
+      longArea.dispatchEvent(new Event('scroll', { bubbles: true }))
+      await new Promise(function (resolve) { setTimeout(resolve, 200) })
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Meta', metaKey: true, bubbles: true, cancelable: true }))
+      await waitFor(function () { return document.querySelector('[data-dff-intel-layer]') }, 5000)
+      await new Promise(function (resolve) { setTimeout(resolve, 120) })
+      var intelInner = document.querySelector('[data-dff-intel-layer] code')
+      check('the identifier layer follows a scrolled editor',
+        Boolean(intelInner) && intelInner.style.transform.indexOf('-4000px') !== -1,
+        intelInner ? intelInner.style.transform : 'no layer')
+      var paneBox = document.querySelector('.dff-code-pane').getBoundingClientRect()
+      var inPane = Array.prototype.filter.call(
+        document.querySelectorAll('.dff-intel-token.is-navigable'),
+        function (node) {
+          var box = node.getBoundingClientRect()
+          return box.top >= paneBox.top && box.bottom <= paneBox.bottom && box.height > 0
+        },
+      )[0]
+      var pickedLine = inPane
+        ? longArea.value.slice(0, Number(inPane.getAttribute('data-start'))).split('\n').length
+        : 0
+      check('the visible links belong to the visible text',
+        Boolean(inPane) && pickedLine >= 150 && pickedLine <= 260,
+        'line ' + pickedLine + ' after scrolling to line 201')
+      window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Meta', metaKey: false, bubbles: true, cancelable: true }))
+      await new Promise(function (resolve) { setTimeout(resolve, 80) })
 
       // HTML: href="#id" resolves to the same-file id.
       var htmlArea = await openFile('page.html')

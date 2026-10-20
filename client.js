@@ -554,18 +554,77 @@ window.__ModuleLoader__.load({
     // No parser yet: a language-aware declaration scan gives ⌘-hover and
     // same-file go-to-definition for every text file, and the TypeScript service
     // will plug in behind the same client contract later.
-    const INTEL_MAX_CHARS = 200 * 1024
+    // Budgets are byte budgets: 200 KB of UTF-8 text, which is not the same as
+    // 200k UTF-16 code units once the file contains Chinese or emoji.
+    const INTEL_MAX_BYTES = 200 * 1024
     const INTEL_MAX_SPANS = 15000
 
+    // Path containment for display paths (the host may return either separator).
+    function isInsidePath(root, target) {
+      if (!root || !target) return false
+      const base = String(root).replace(/[\\/]+$/, '')
+      const value = String(target)
+      return value === base || value === String(root)
+        || value.startsWith(base + '/') || value.startsWith(base + '\\')
+    }
+
+    function emptyBrowseState(path) {
+      return {
+        path: path || '', parent: null, crumbs: [], entries: [],
+        truncated: false, loading: false, error: '',
+      }
+    }
+
+    function utf8Length(text) {
+      let bytes = 0
+      for (let index = 0; index < text.length; index += 1) {
+        const code = text.charCodeAt(index)
+        if (code < 0x80) bytes += 1
+        else if (code < 0x800) bytes += 2
+        else if (code >= 0xd800 && code <= 0xdbff) {
+          bytes += 4
+          index += 1
+        } else bytes += 3
+      }
+      return bytes
+    }
+
+    // One extension table feeds every consumer: the declaration scan, the colour
+    // scanner and the Markdown fence hints. The two smaller maps translate the
+    // shared key into the vocabulary each consumer understands.
+    const LANGUAGE_BY_EXTENSION = (() => {
+      const table = new Map()
+      const add = (language, extensions) => {
+        for (const extension of extensions.split(' ')) table.set(extension, language)
+      }
+      add('js', 'js mjs cjs jsx ts mts tsx cts')
+      add('vue', 'vue')
+      add('svelte', 'svelte')
+      add('python', 'py pyw')
+      add('go', 'go')
+      add('rust', 'rs')
+      add('clike', 'java kt kts cs scala swift c h cpp cc cxx hpp hxx m mm')
+      add('markup', 'html htm xhtml xml svg')
+      add('css', 'css scss sass less')
+      add('json', 'json jsonc json5 webmanifest')
+      add('yaml', 'yml yaml')
+      add('markdown', 'md markdown mdown mdx')
+      add('shell', 'sh bash zsh fish ksh')
+      add('ini', 'toml ini cfg conf')
+      return table
+    })()
+
+    function languageOf(name) {
+      return LANGUAGE_BY_EXTENSION.get(extOf(name)) || ''
+    }
+
+    const INTEL_LANGUAGE = {
+      js: 'js', vue: 'js', svelte: 'js', python: 'python', go: 'go',
+      rust: 'rust', clike: 'clike', markup: 'html',
+    }
+
     function intelLanguageOf(name) {
-      const extension = extOf(name)
-      if (/^(?:m?[jt]sx?|cjs|vue|svelte)$/.test(extension)) return 'js'
-      if (/^(?:py|pyw)$/.test(extension)) return 'python'
-      if (extension === 'go') return 'go'
-      if (extension === 'rs') return 'rust'
-      if (/^(?:java|kt|kts|cs|c|h|cpp|cc|hpp|m|mm|swift|scala)$/.test(extension)) return 'clike'
-      if (/^(?:html?|xhtml)$/.test(extension)) return 'html'
-      return 'generic'
+      return INTEL_LANGUAGE[languageOf(name)] || 'generic'
     }
 
     const INTEL_RESERVED = new Set([
@@ -737,7 +796,7 @@ window.__ModuleLoader__.load({
     // lexical: no scope analysis, so a mis-coloured edge case can never break
     // the editor. Only the visible window is painted with spans, which keeps a
     // 200 KB file as cheap to render as a small one.
-    const TOKEN_MAX_CHARS = 200 * 1024
+    const TOKEN_MAX_BYTES = 200 * 1024
     const TOKEN_WINDOW_MAX = 4000
     const TOKEN_BUFFER_LINES = 40
 
@@ -792,26 +851,6 @@ window.__ModuleLoader__.load({
       clike: { lineComment: '//', blockComment: ['/*', '*/'], quotes: '"\'`', keywords: TOKEN_KEYWORDS.clike, types: TOKEN_TYPES.clike },
       python: { lineComment: '#', quotes: '"\'', triples: ['"""', "'''"], keywords: TOKEN_KEYWORDS.python, types: TOKEN_TYPES.python, decorators: true },
       shell: { lineComment: '#', quotes: '"\'', keywords: TOKEN_KEYWORDS.shell, variables: true },
-    }
-
-    function colorLanguageOf(name) {
-      const extension = extOf(name)
-      if (/^(?:m?[jt]sx?|cjs)$/.test(extension)) return 'js'
-      if (/^(?:py|pyw)$/.test(extension)) return 'python'
-      if (extension === 'go') return 'go'
-      if (extension === 'rs') return 'rust'
-      if (/^(?:java|kt|kts|cs|scala|swift)$/.test(extension)) return 'clike'
-      if (/^(?:c|h|cpp|cc|cxx|hpp|hxx|m|mm)$/.test(extension)) return 'clike'
-      if (extension === 'vue') return 'vue'
-      if (extension === 'svelte') return 'svelte'
-      if (/^(?:html?|xhtml|xml|svg)$/.test(extension)) return 'markup'
-      if (/^(?:css|scss|sass|less)$/.test(extension)) return 'css'
-      if (/^(?:json|jsonc|json5|webmanifest)$/.test(extension)) return 'json'
-      if (/^(?:ya?ml)$/.test(extension)) return 'yaml'
-      if (/^(?:md|markdown|mdown|mdx)$/.test(extension)) return 'markdown'
-      if (/^(?:sh|bash|zsh|fish|ksh)$/.test(extension)) return 'shell'
-      if (/^(?:toml|ini|cfg|conf)$/.test(extension)) return 'ini'
-      return ''
     }
 
     function scanStringEnd(text, start, quote, multiline) {
@@ -1057,7 +1096,18 @@ window.__ModuleLoader__.load({
               cursor = stop
               continue
             }
-            if (isIdentStartCode(code)) {
+            if (text[cursor] === '{') {
+              // Svelte spread / shorthand: {value}, {...props}
+              const brace = findMatchingBrace(text, cursor)
+              if (brace > cursor) {
+                pushShiftedTokens(tokens, scanScriptTokens(text.slice(cursor + 1, brace), TOKEN_SPECS.js), cursor + 1)
+                cursor = brace + 1
+                continue
+              }
+              cursor += 1
+              continue
+            }
+            if (isIdentStartCode(code) || text[cursor] === ':' || text[cursor] === '@' || text[cursor] === '#') {
               let stop = cursor + 1
               while (stop < total && (isIdentPartCode(text.charCodeAt(stop)) || text[stop] === '-' || text[stop] === ':' || text[stop] === '.' || text[stop] === '@')) stop += 1
               const attribute = text.slice(cursor, stop)
@@ -1315,14 +1365,15 @@ window.__ModuleLoader__.load({
       return tokens
     }
 
-    const FENCE_LANGUAGES = {
-      js: 'js', javascript: 'js', jsx: 'js', ts: 'js', typescript: 'js', tsx: 'js', mjs: 'js', cjs: 'js',
-      html: 'markup', htm: 'markup', xml: 'markup', svg: 'markup', vue: 'vue', svelte: 'svelte',
-      css: 'css', scss: 'css', sass: 'css', less: 'css',
-      json: 'json', jsonc: 'json', yaml: 'yaml', yml: 'yaml',
-      py: 'python', python: 'python', go: 'go', rust: 'rust', rs: 'rust',
-      sh: 'shell', bash: 'shell', shell: 'shell', zsh: 'shell',
-      ini: 'ini', toml: 'ini',
+    // Markdown fences name a language in prose ("javascript", "typescript"),
+    // so map the common aliases onto extension names and reuse the same table.
+    const FENCE_ALIASES = {
+      javascript: 'js', typescript: 'js',
+      python: 'py', rust: 'rs', shell: 'sh', yaml: 'yml', markdown: 'md',
+    }
+
+    function fenceLanguageOf(info) {
+      return languageOf('fence.' + (FENCE_ALIASES[info] || info))
     }
 
     function scanMarkdownTokens(text) {
@@ -1340,7 +1391,7 @@ window.__ModuleLoader__.load({
           const close = text.indexOf('\n```', cursor)
           const bodyEnd = close < 0 ? total : close + 1
           // A fenced block that names a language is scanned with that language.
-          const fenceLanguage = FENCE_LANGUAGES[info]
+          const fenceLanguage = fenceLanguageOf(info)
           if (fenceLanguage && bodyEnd > cursor) {
             pushShiftedTokens(tokens, scanTokens(text.slice(cursor, bodyEnd), fenceLanguage), cursor)
           }
@@ -1751,6 +1802,19 @@ window.__ModuleLoader__.load({
       return h('kbd', { className: 'dff-key', 'aria-hidden': 'true' }, props.children)
     }
 
+    function skeletonRows(count) {
+      return h('div', { className: 'dff-skeleton', 'aria-hidden': 'true' },
+        Array.from({ length: count }, (_, row) => h('div', {
+          key: 'skeleton-' + String(row),
+          className: 'dff-skeleton-row',
+          style: { animationDelay: row * 90 + 'ms' },
+        },
+          h('span', { className: 'dff-skeleton-glyph' }),
+          h('span', { className: 'dff-skeleton-body' },
+            h('span', { className: 'dff-skeleton-name' }),
+            h('span', { className: 'dff-skeleton-path' })))))
+    }
+
     function Keycaps(props) {
       return h('span', {
         className: 'dff-keys',
@@ -1910,9 +1974,7 @@ window.__ModuleLoader__.load({
       const [confirmAction, setConfirmAction] = useState('')
       const [searchTick, setSearchTick] = useState(0)
       const [browsePath, setBrowsePath] = useState('')
-      const [browseState, setBrowseState] = useState({
-        path: '', parent: null, entries: [], total: 0, truncated: false, loading: false, error: '',
-      })
+      const [browseState, setBrowseState] = useState(emptyBrowseState)
       const [findOpen, setFindOpen] = useState(false)
       const [findQuery, setFindQuery] = useState('')
       const [findCase, setFindCase] = useState(false)
@@ -1922,7 +1984,7 @@ window.__ModuleLoader__.load({
       const [intelHover, setIntelHover] = useState(null)
       const [composing, setComposing] = useState(false)
       const [tokenWindow, setTokenWindow] = useState(null)
-      const [navDepth, setNavDepth] = useState(0)
+      const [navStack, setNavStack] = useState([])
       const inputRef = useRef(null)
       const editorRef = useRef(null)
       const findInputRef = useRef(null)
@@ -1933,7 +1995,6 @@ window.__ModuleLoader__.load({
       const intelLayerRef = useRef(null)
       const tokenLayerRef = useRef(null)
       const editorViewRef = useRef(null)
-      const navStackRef = useRef([])
       const panelRef = useRef(null)
       const generation = useRef(0)
       const lastFocus = useRef(null)
@@ -1959,11 +2020,10 @@ window.__ModuleLoader__.load({
         setFindIndex(0)
         setFindFocused(false)
         setBrowsePath('')
-        setBrowseState({ path: '', parent: null, entries: [], total: 0, truncated: false, loading: false, error: '' })
+        setBrowseState(emptyBrowseState())
         setIntelArmed(false)
         setIntelHover(null)
-        navStackRef.current = []
-        setNavDepth(0)
+        setNavStack([])
         const session = sessionOf(ctx)
         if (session.cwd) setRoot(session.cwd)
         let cancelled = false
@@ -2080,10 +2140,10 @@ window.__ModuleLoader__.load({
 
       // An empty name query becomes a file browser: the panel lists the current
       // directory and typing falls back to the usual search.
-      const browsing = Boolean(request.open && view === 'search' && mode === 'name' && !query.trim() && root)
+      const browsing = Boolean(request.open && view === 'search' && !query.trim() && root)
       useEffect(() => {
         if (!browsing || !root) return undefined
-        const dir = browsePath && browsePath.startsWith(root) ? browsePath : root
+        const dir = browsePath && isInsidePath(root, browsePath) ? browsePath : root
         const controller = new AbortController()
         let cancelled = false
         setBrowseState((current) => ({ ...current, loading: current.entries.length === 0, error: '' }))
@@ -2093,23 +2153,20 @@ window.__ModuleLoader__.load({
             setBrowseState({
               path: data.path || dir,
               parent: data.parent || null,
+              crumbs: Array.isArray(data.crumbs) ? data.crumbs : [],
               entries: Array.isArray(data.entries) ? data.entries : [],
-              total: typeof data.total === 'number' ? data.total : 0,
               truncated: Boolean(data.truncated),
               loading: false,
               error: '',
             })
           } else {
-            setBrowseState({
-              path: dir, parent: null, entries: [], total: 0, truncated: false, loading: false,
-              error: (data && data.error) || t('browseFailed'),
-            })
+            setBrowseState({ ...emptyBrowseState(dir), error: (data && data.error) || t('browseFailed') })
           }
           setSelected(0)
         }).catch((reason) => {
           if (cancelled || (reason && reason.name === 'AbortError')) return
           setBrowseState({
-            path: dir, parent: null, entries: [], total: 0, truncated: false, loading: false,
+            ...emptyBrowseState(dir),
             error: reason instanceof Error ? reason.message : String(reason),
           })
         })
@@ -2181,23 +2238,24 @@ window.__ModuleLoader__.load({
         if (from < draft.length) nodes.push(draft.slice(from))
         return nodes
       }, [draft, findResult, findIndex, mirrorOn])
+      const draftBytes = useMemo(() => utf8Length(draft), [draft])
       const intel = useMemo(() => {
         if (!intelArmed || !file || file.kind !== 'text' || findOpen) return null
-        if (!draft || draft.length > INTEL_MAX_CHARS) return null
+        if (!draft || draftBytes > INTEL_MAX_BYTES) return null
         const language = intelLanguageOf(file.path)
         const index = buildIntelIndex(draft, language)
-        return { language, index, segments: buildIntelSegments(draft, index) }
-      }, [intelArmed, file, draft, findOpen])
+        return { index, segments: buildIntelSegments(draft, index) }
+      }, [intelArmed, file, draft, draftBytes, findOpen])
 
       // Lexical colours. The scanner runs once per edit (a single linear pass);
       // only the tokens inside the visible window are turned into spans, so a
       // large file stays cheap to scroll.
       const tokenLanguage = useMemo(
-        () => (file && file.kind === 'text' ? colorLanguageOf(file.path) : ''),
+        () => (file && file.kind === 'text' ? languageOf(file.path) : ''),
         [file],
       )
       const tokenOn = Boolean(
-        tokenLanguage && draft && draft.length <= TOKEN_MAX_CHARS && !composing
+        tokenLanguage && draft && draftBytes <= TOKEN_MAX_BYTES && !composing
       )
       const lineStarts = useMemo(() => {
         if (!tokenOn) return null
@@ -2301,6 +2359,16 @@ window.__ModuleLoader__.load({
         return () => observer.disconnect()
       }, [view, tokenOn, file])
 
+      // The identifier and colour layers are re-created after a ⌘ press, an IME
+      // composition or a resize, and a fresh layer starts at scroll offset zero.
+      // Push the current offset in before the browser paints, or the links and
+      // colours line up with a different part of the file.
+      useLayoutEffect(() => {
+        if (view !== 'editor') return
+        const area = editorRef.current
+        if (area) syncEditorScroll(area)
+      }, [view, intel, tokenPainted, mirrorOn])
+
       // Bring the active match into view. Horizontal alignment happens after the
       // mirror has painted, because only the rendered <mark> knows where the
       // match starts on a long, unwrapped line.
@@ -2383,8 +2451,7 @@ window.__ModuleLoader__.load({
         setFindOpen(false)
         setFindQuery('')
         setFindIndex(0)
-        navStackRef.current = []
-        setNavDepth(0)
+        setNavStack([])
         try {
           const data = await post('/dsh-file-finder/read', { root, path: item.path })
           const text = typeof data.text === 'string' ? data.text : ''
@@ -2514,7 +2581,7 @@ window.__ModuleLoader__.load({
         const current = browseState.path || root
         const parent = browseState.parent
         if (!parent || parent === current) return
-        setBrowsePath(parent === root ? '' : parent)
+        setBrowsePath(parent)
         setSelected(0)
         if (inputRef.current) inputRef.current.focus()
       }
@@ -2613,21 +2680,20 @@ window.__ModuleLoader__.load({
         })
       }
 
+      function setLayerOffset(ref, left, top) {
+        if (!ref || !ref.current) return
+        ref.current.style.transform = 'translate3d(' + String(-left) + 'px,' + String(-top) + 'px,0)'
+      }
+
       function syncEditorScroll(area) {
         if (!area) return
         const top = area.scrollTop
         const left = area.scrollLeft
-        if (mirrorRef.current) {
-          mirrorRef.current.style.transform = 'translate3d(' + String(-left) + 'px,' + String(-top) + 'px,0)'
-        }
+        setLayerOffset(mirrorRef, left, top)
+        setLayerOffset(intelLayerRef, left, top)
+        setLayerOffset(tokenLayerRef, left, top)
         if (gutterRef.current) {
           gutterRef.current.style.transform = 'translate3d(0,' + String(-top) + 'px,0)'
-        }
-        if (intelLayerRef.current) {
-          intelLayerRef.current.style.transform = 'translate3d(' + String(-left) + 'px,' + String(-top) + 'px,0)'
-        }
-        if (tokenLayerRef.current) {
-          tokenLayerRef.current.style.transform = 'translate3d(' + String(-left) + 'px,' + String(-top) + 'px,0)'
         }
         measureTokenWindow(area)
         positionActiveLine()
@@ -2767,15 +2833,17 @@ window.__ModuleLoader__.load({
         if (!declaration || declaration.offset === segment.start) return
         event.preventDefault()
         event.stopPropagation()
-        jumpIntel(declaration.offset, true)
+        jumpIntel(declaration.offset, true, segment.start)
       }
 
-      function jumpIntel(offset, push) {
+      function jumpIntel(offset, push, fromOffset) {
         const area = editorRef.current
         if (!area) return
         if (push) {
-          navStackRef.current.push({ offset: area.selectionStart || 0 })
-          setNavDepth(navStackRef.current.length)
+          // Where the click happened, not where the caret happened to be: the
+          // click lands on the identifier layer, so the textarea never moves.
+          const origin = typeof fromOffset === 'number' ? fromOffset : (area.selectionStart || 0)
+          setNavStack((stack) => stack.concat({ offset: origin }))
         }
         area.focus()
         area.setSelectionRange(offset, offset)
@@ -2787,11 +2855,24 @@ window.__ModuleLoader__.load({
       }
 
       function navBack() {
-        const stack = navStackRef.current
-        const last = stack.pop()
-        if (!last) return
-        setNavDepth(stack.length)
+        if (!navStack.length) return
+        const last = navStack[navStack.length - 1]
+        setNavStack((stack) => stack.slice(0, -1))
         jumpIntel(last.offset, false)
+      }
+
+      // Keep the back stack pointing at the same text while the draft is edited:
+      // an insertion or deletion before a saved offset shifts it by the delta.
+      function adjustNavStack(previous, next) {
+        if (!previous || previous === next || !navStack.length) return
+        let prefix = 0
+        const max = Math.min(previous.length, next.length)
+        while (prefix < max && previous.charCodeAt(prefix) === next.charCodeAt(prefix)) prefix += 1
+        const delta = next.length - previous.length
+        if (!delta) return
+        setNavStack((stack) => stack.map((entry) => (
+          entry.offset > prefix ? { offset: Math.max(0, entry.offset + delta) } : entry
+        )))
       }
 
       function onEditorKey(event) {
@@ -2912,15 +2993,9 @@ window.__ModuleLoader__.load({
 
       function browseCrumbs() {
         const base = String(root || '').replace(/[\\/]+$/, '')
-        const current = browseState.path || base
-        const relative = relativePath(base, current)
-        const parts = relative ? relative.split('/') : []
-        const items = [{ label: baseName(base) || base, path: '' }]
-        let accumulated = ''
-        for (const part of parts) {
-          accumulated = accumulated ? accumulated + '/' + part : part
-          items.push({ label: part, path: base + '/' + accumulated })
-        }
+        const items = browseState.crumbs && browseState.crumbs.length
+          ? browseState.crumbs
+          : [{ label: baseName(base) || base, path: base }]
         const nodes = [h('span', { key: 'crumbs-glyph', className: 'dff-crumbs-glyph', 'aria-hidden': 'true' }, h(FolderIcon, { size: 13 }))]
         items.forEach((item, index) => {
           if (index) nodes.push(h('span', { key: 'sep:' + String(index), className: 'dff-crumb-sep', 'aria-hidden': 'true' }, '/'))
@@ -2931,7 +3006,7 @@ window.__ModuleLoader__.load({
             'data-dff-crumb': item.path || 'root',
             title: item.path || base,
             onClick: () => {
-              setBrowsePath(item.path)
+              setBrowsePath(item.path || base)
               setSelected(0)
               if (inputRef.current) inputRef.current.focus()
             },
@@ -2979,9 +3054,9 @@ window.__ModuleLoader__.load({
               'data-dff-input': 'true',
               autoFocus: true,
               value: query,
-              placeholder: mode === 'content'
-                ? t('contentPlaceholder')
-                : (browsing ? t('browsePlaceholder') : t('namePlaceholder')),
+              placeholder: browsing
+                ? t('browsePlaceholder')
+                : mode === 'content' ? t('contentPlaceholder') : t('namePlaceholder'),
               spellCheck: false,
               autoComplete: 'off',
               autoCorrect: 'off',
@@ -3018,12 +3093,7 @@ window.__ModuleLoader__.load({
                   h('strong', null, t('browseFailed')),
                   h('span', null, browseState.error))
                 : browseState.loading && !rows.length
-                  ? h('div', { className: 'dff-skeleton', 'aria-hidden': 'true' },
-                    [0, 1, 2, 3].map((row) => h('div', { key: row, className: 'dff-skeleton-row', style: { animationDelay: row * 90 + 'ms' } },
-                      h('span', { className: 'dff-skeleton-glyph' }),
-                      h('span', { className: 'dff-skeleton-body' },
-                        h('span', { className: 'dff-skeleton-name' }),
-                        h('span', { className: 'dff-skeleton-path' })))))
+                  ? skeletonRows(4)
                   : rows.length
                     ? [
                       ...rows.map((item, index) => browseRow(item, index)),
@@ -3039,12 +3109,7 @@ window.__ModuleLoader__.load({
               : flat.length
                 ? flat.map((item, index) => resultRow(item, index))
                 : busy
-                  ? h('div', { className: 'dff-skeleton', 'aria-hidden': 'true' },
-                    [0, 1, 2].map((row) => h('div', { key: row, className: 'dff-skeleton-row', style: { animationDelay: row * 90 + 'ms' } },
-                      h('span', { className: 'dff-skeleton-glyph' }),
-                      h('span', { className: 'dff-skeleton-body' },
-                        h('span', { className: 'dff-skeleton-name' }),
-                        h('span', { className: 'dff-skeleton-path' })))))
+                  ? skeletonRows(3)
                   : h('div', { className: 'dff-empty' },
                     h('span', { className: 'dff-empty-glyph' }, !root ? h(FolderIcon, { size: 20 }) : short ? h(EditIcon, { size: 18 }) : h(SearchIcon, { size: 20 })),
                     h('strong', null, !root ? t('noRoot') : short ? t('contentShort') : idle ? t('idleTitle') : t('noResult')),
@@ -3191,7 +3256,7 @@ window.__ModuleLoader__.load({
               h('span', { className: 'dff-dot', 'aria-hidden': 'true' }),
               dirty ? t('dirty') : status === t('conflict') ? t('conflict') : status === t('saving') ? t('saving') : t('saved')),
             h('div', { className: 'dff-editor-actions' },
-              navDepth ? h('button', {
+              navStack.length ? h('button', {
                 type: 'button', className: 'dff-icon-btn', 'data-dff-nav-back': 'true',
                 'aria-label': t('navBack'), title: t('navBack'), onClick: navBack,
               }, h(BackIcon, { size: 16 })) : null,
@@ -3241,7 +3306,7 @@ window.__ModuleLoader__.load({
               h('span', { className: 'dff-editor-stats' },
                 lineCount ? h('span', null, textOf(t, 'lines', { count: lineCount })) : null,
                 file && file.bytes ? h('span', null, bytesText(file.bytes)) : null,
-                tokenLanguage && draft.length > TOKEN_MAX_CHARS
+                tokenLanguage && draftBytes > TOKEN_MAX_BYTES
                   ? h('span', { className: 'dff-plain-chip', 'data-dff-plain': 'true', title: t('plainHint') }, t('plainText'))
                   : null,
                 h('span', null, 'UTF-8'))),
@@ -3328,7 +3393,12 @@ window.__ModuleLoader__.load({
                   value: draft,
                   spellCheck: false,
                   wrap: 'off',
-                  onChange: (event) => { setDraft(event.target.value); trackActiveLine() },
+                  onChange: (event) => {
+                    const value = event.target.value
+                    adjustNavStack(draft, value)
+                    setDraft(value)
+                    trackActiveLine()
+                  },
                   onKeyDown: onEditorKey,
                   onKeyUp: trackActiveLine,
                   onSelect: trackActiveLine,
