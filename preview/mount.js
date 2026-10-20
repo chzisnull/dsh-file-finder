@@ -20,7 +20,7 @@
   const SUPPORTED_STATES = [
     'palette-name',
     'palette-content',
-    'palette-idle',
+    'palette-browse',
     'palette-empty',
     'palette-loading',
     'editor',
@@ -141,6 +141,47 @@
     { path: '/workspace/dsh-workbench', title: 'dsh-workbench', source: 'workspace' },
     { path: '/workspace/deepseek-harness/packages/client', title: 'deepseek-harness', source: 'session' },
   ]
+
+  // Directory listing for the browse mode (empty query).
+  const BROWSE_TREE = {
+    [CWD]: [
+      { name: 'docs', path: `${CWD}/docs`, type: 'dir' },
+      { name: 'packages', path: `${CWD}/packages`, type: 'dir' },
+      { name: 'preview', path: `${CWD}/preview`, type: 'dir' },
+      { name: 'src', path: `${CWD}/src`, type: 'dir' },
+      { name: 'client.js', path: `${CWD}/client.js`, type: 'file' },
+      { name: 'cordis.patch.yml', path: `${CWD}/cordis.patch.yml`, type: 'file' },
+      { name: 'index.js', path: `${CWD}/index.js`, type: 'file' },
+      { name: 'package.json', path: `${CWD}/package.json`, type: 'file' },
+      { name: 'README.md', path: `${CWD}/README.md`, type: 'file' },
+    ],
+    [`${CWD}/src`]: [
+      { name: 'search', path: `${CWD}/src/search`, type: 'dir' },
+      { name: 'main.ts', path: `${CWD}/src/main.ts`, type: 'file' },
+      { name: 'panel.tsx', path: `${CWD}/src/panel.tsx`, type: 'file' },
+    ],
+    [`${CWD}/src/search`]: [
+      { name: '__tests__', path: `${CWD}/src/search/__tests__`, type: 'dir' },
+      { name: 'query-parser.ts', path: `${CWD}/src/search/query-parser.ts`, type: 'file' },
+      { name: 'rank.ts', path: `${CWD}/src/search/rank.ts`, type: 'file' },
+    ],
+    [`${CWD}/docs`]: [
+      { name: 'native-integration.md', path: `${CWD}/docs/native-integration.md`, type: 'file' },
+    ],
+    [`${CWD}/packages`]: [
+      { name: 'client', path: `${CWD}/packages/client`, type: 'dir' },
+      { name: 'server', path: `${CWD}/packages/server`, type: 'dir' },
+    ],
+    [`${CWD}/packages/client`]: [],
+    [`${CWD}/packages/server`]: [],
+    [`${CWD}/preview`]: [
+      { name: 'vendor', path: `${CWD}/preview/vendor`, type: 'dir' },
+      { name: 'index.html', path: `${CWD}/preview/index.html`, type: 'file' },
+      { name: 'mount.js', path: `${CWD}/preview/mount.js`, type: 'file' },
+    ],
+    [`${CWD}/preview/vendor`]: [],
+    [`${CWD}/src/search/__tests__`]: [],
+  }
 
   const NAME_RESULTS = [
     { path: `${CWD}/index.js`, name: 'index.js', score: 0 },
@@ -292,6 +333,14 @@ export function rankName(query, displayPath, options = {}) {
 
     if (path === '/dsh-file-finder/roots') {
       return jsonResponse({ ok: true, roots: ROOTS, current: CWD }, 60)
+    }
+    if (path === '/dsh-file-finder/list') {
+      const dir = String(body.path || CWD)
+      const entries = BROWSE_TREE[dir] || []
+      const parent = dir === CWD ? null : dir.slice(0, dir.lastIndexOf('/'))
+      return jsonResponse({
+        ok: true, root: CWD, path: dir, parent, total: entries.length, truncated: false, entries,
+      }, 60)
     }
     if (path === '/dsh-file-finder/search-name') {
       if (HOLD_SEARCH) return neverResponse()
@@ -677,11 +726,12 @@ export function rankName(query, displayPath, options = {}) {
 
     if (captureAtOpen) return
 
-    if (state === 'palette-idle') {
-      await waitFor(() => {
-        const panel = pick(SELECTORS.panel)
-        return panel && /Search workspace files|搜索工作区文件/.test(panel.innerText || '')
-      }, 4000, 'the idle palette copy ("Search workspace files")')
+    if (state === 'palette-browse') {
+      await waitFor(
+        () => document.querySelectorAll('[data-dff-browse]').length > 0 && Boolean(document.querySelector('[data-dff-crumbs]')),
+        6000,
+        'the directory listing in the empty-query palette',
+      )
       return
     }
 

@@ -47,7 +47,7 @@ const SETTINGS_VIEWPORT = { width: 1100, height: 760 }
 const CAPTURES = [
   { key: 'palette-name', hash: 'palette-name', viewport: MAIN_VIEWPORT },
   { key: 'palette-content', hash: 'palette-content', viewport: MAIN_VIEWPORT },
-  { key: 'palette-idle', hash: 'palette-idle', viewport: MAIN_VIEWPORT },
+  { key: 'palette-browse', hash: 'palette-browse', viewport: MAIN_VIEWPORT },
   { key: 'palette-empty', hash: 'palette-empty', viewport: MAIN_VIEWPORT },
   { key: 'palette-loading', hash: 'palette-loading', viewport: MAIN_VIEWPORT },
   { key: 'editor', hash: 'editor', viewport: MAIN_VIEWPORT },
@@ -73,7 +73,7 @@ const MOTION_CAPTURE = {
 const REQUIRED_KEYS = [
   'palette-name',
   'palette-content',
-  'palette-idle',
+  'palette-browse',
   'palette-empty',
   'editor',
   'editor-dirty',
@@ -255,6 +255,8 @@ function collectInfo() {
   const panel = pick(['[data-dff-palette]', '.dff-panel'])
   const input = pick(['[data-dff-input]', '.dff-input'])
   const results = pickAll(['[data-dff-result]', '.dff-result'])
+  // Browse rows reuse the result styling, so only the search hook counts here.
+  const resultRows = pickAll(['[data-dff-result]'])
   const editor = pick(['[data-dff-editor]', '.dff-editor', 'textarea.dff-editor'])
   const settings = pick(['[data-dff-settings]', '.dff-page'])
   const selected = results.find((element) =>
@@ -285,7 +287,9 @@ function collectInfo() {
     hasPanel: Boolean(panel),
     panelCount: document.querySelectorAll('[data-dff-palette], .dff-panel').length,
     hasInput: Boolean(input),
-    resultCount: results.length,
+    resultCount: resultRows.length,
+    browseCount: document.querySelectorAll('[data-dff-browse]').length,
+    hasCrumbs: Boolean(document.querySelector('[data-dff-crumbs]')),
     hasSelectedResult: Boolean(selected),
     hasEditor: Boolean(editor),
     hasFind: Boolean(document.querySelector('[data-dff-find]')),
@@ -344,16 +348,13 @@ function validateState(stateKey, info, pushWarning) {
       if (!info.hasSelectedResult) pushWarning('no highlighted/selected result row is visible')
       break
     }
-    case 'palette-idle': {
+    case 'palette-browse': {
       requirePaletteShell()
-      if (info.resultCount !== 0) fail(`expected an empty idle palette, found ${info.resultCount} rows`)
-      const idleText = `${info.text}\n${info.bodyText}`
-      if (!/Search workspace files|搜索工作区文件/.test(idleText)) {
-        fail('idle palette copy not found. Expected "Search workspace files" / "搜索工作区文件" with no query.')
-      }
-      if (/No matches|没有匹配结果/.test(idleText)) {
-        fail('idle palette still renders the no-match copy')
-      }
+      if (info.resultCount !== 0) fail(`expected no search-result rows in browse mode, found ${info.resultCount}`)
+      if (info.browseCount < 3) fail(`expected at least 3 browsable entries, found ${info.browseCount}`)
+      if (!info.hasCrumbs) fail('the directory breadcrumb is missing from the empty-query palette')
+      const browseText = `${info.text}\n${info.bodyText}`
+      if (/No matches|没有匹配结果/.test(browseText)) fail('browse palette renders the no-match copy')
       break
     }
     case 'palette-empty': {

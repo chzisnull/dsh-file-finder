@@ -27,7 +27,7 @@ Each run rewrites `preview/shots/`:
 | --- | --- | --- |
 | `palette-name-{light,dark}.png` | 1440×900 @2x | name-search results |
 | `palette-content-{light,dark}.png` | 1440×900 @2x | content-search hits with line badges |
-| `palette-idle-{light,dark}.png` | 1440×900 @2x | palette opened with no query (idle copy) |
+| `palette-browse-{light,dark}.png` | 1440×900 @2x | palette opened with no query (workspace listing + breadcrumb) |
 | `palette-empty-{light,dark}.png` | 1440×900 @2x | no-match state |
 | `palette-loading-{light,dark}.png` | 1440×900 @2x | pending request: skeleton + spinner |
 | `editor-{light,dark}.png` | 1440×900 @2x | built-in editor view |
@@ -61,7 +61,7 @@ http://127.0.0.1:<port>/preview/index.html?theme=light&motion=off#settings
 | --- | --- |
 | `#palette-name` | palette opened in name mode, query `index` |
 | `#palette-content` | palette opened in content mode, query `parser` (13 hits) |
-| `#palette-idle` | palette opened with no query (idle/"Search workspace files" copy) |
+| `#palette-browse` | palette opened with no query (workspace listing + breadcrumb) |
 | `#palette-empty` | query `zzzznomatch` (mock returns no rows) |
 | `#palette-loading` | query `parser`, but the mock search request never resolves |
 | `#editor` | name search, first result opened in the built-in editor |

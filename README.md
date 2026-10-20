@@ -6,6 +6,7 @@ A DeepSeek Harness plugin for finding workspace files without leaving DSH: searc
 
 ## What it does
 
+- **Browse when there is nothing to search**: with an empty query the palette lists the current workspace directory — folders first, then files — and you can walk into a folder (Enter or →), go back up (Backspace) or jump with the breadcrumb. Typing switches to the normal search, and clearing the query returns to the folder you were browsing.
 - **Search by file name**, including a path fragment such as `src/view`.
 - **Search by content**, with one result row per matching line.
 - **Open natively**: Enter opens the file in DSH's right-sidebar document preview, the same surface the Files tab uses, and jumps to the matching line for content hits.

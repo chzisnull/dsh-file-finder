@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>dsh-file-finder · browse mode check</title>
+<script>
+  // Fake workspace for the empty-query directory browser.
+  var LIST = {
+    '/ws': [
+      { name: 'src', path: '/ws/src', type: 'dir' },
+      { name: 'docs', path: '/ws/docs', type: 'dir' },
+      { name: 'README.md', path: '/ws/README.md', type: 'file' },
+      { name: 'package.json', path: '/ws/package.json', type: 'file' },
+    ],
+    '/ws/src': [
+      { name: 'api', path: '/ws/src/api', type: 'dir' },
+      { name: 'components', path: '/ws/src/components', type: 'dir' },
+      { name: 'App.vue', path: '/ws/src/App.vue', type: 'file' },
+      { name: 'main.ts', path: '/ws/src/main.ts', type: 'file' },
+    ],
+    '/ws/src/api': [
+      { name: 'survey.ts', path: '/ws/src/api/survey.ts', type: 'file' },
+    ],
+    '/ws/src/components': [],
+    '/ws/docs': [
+      { name: 'guide.md', path: '/ws/docs/guide.md', type: 'file' },
+    ],
+  }
+  var PARENT = {
+    '/ws': null,
+    '/ws/src': '/ws',
+    '/ws/src/api': '/ws/src',
+    '/ws/src/components': '/ws/src',
+    '/ws/docs': '/ws',
+  }
+  var TEXTS = {
+    '/ws/src/App.vue': '<template>\n  <div>hello</div>\n</template>\n',
+    '/ws/docs/guide.md': '# Guide\n\nRead me.\n',
+  }
+  function response(body) {
+    return { ok: true, status: 200, json: function () { return Promise.resolve(body) } }
+  }
+  window.fetch = function (input, init) {
+    var url = typeof input === 'string' ? input : (input && input.url) || ''
+    var path = url
+    try { path = new URL(url, location.href).pathname } catch (error) { /* raw */ }
+    var body = {}
+    try { if (init && typeof init.body === 'string') body = JSON.parse(init.body) } catch (error) { body = {} }
+    if (path === '/dsh-file-finder/roots') {
+      return Promise.resolve(response({ ok: true, roots: [{ path: '/ws', title: 'ws', source: 'workspace' }], current: '/ws' }))
+    }
+    if (path === '/dsh-file-finder/list') {
+      var dir = String(body.path || '/ws')
+      var entries = LIST[dir] || []
+      return Promise.resolve(response({
+        ok: true, root: '/ws', path: dir, parent: PARENT[dir] === undefined ? null : PARENT[dir],
+        total: entries.length, truncated: false, entries: entries,
+      }))
+    }
+    if (path === '/dsh-file-finder/search-name') {
+      var query = String(body.query || '')
+      var results = query.toLowerCase().indexOf('main') === 0
+        ? [{ path: '/ws/src/main.ts', name: 'main.ts', score: 0 }]
+        : []
+      return Promise.resolve(response({ ok: true, mode: 'name', root: '/ws', truncated: false, results: results }))
+    }
+    if (path === '/dsh-file-finder/read') {
+      var text = TEXTS[body.path] || 'plain text\n'
+      return Promise.resolve(response({ ok: true, path: body.path, version: '1', bytes: text.length, kind: 'text', text: text }))
+    }
+    return Promise.resolve(response({ ok: false, error: 'unexpected ' + path }))
+  }
+</script>
+</head>
+<body>
+<div id="host"></div>
+<script src="./vendor/react.development.js"></script>
+<script src="./vendor/react-dom.development.js"></script>
+<script src="./loader-shim.js"></script>
+<script src="../client.js"></script>
+<script>
+  (function () {
+    'use strict'
+    var results = []
+    var shortcuts = []
+    var slots = []
+
+    function check(name, ok, detail) {
+      results.push({ name: name, ok: Boolean(ok), detail: detail === undefined ? null : String(detail) })
+    }
+
+    function text(node) { return node ? String(node.textContent || '') : '' }
+
+    function setInputValue(input, value) {
+      var setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+      setter.call(input, value)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+
+    async function waitFor(checkFn, timeout) {
+      var started = performance.now()
+      for (;;) {
+        var value = null
+        try { value = checkFn() } catch (error) { value = null }
+        if (value) return value
+        if (performance.now() - started > (timeout || 4000)) throw new Error('timed out waiting for a selector')
+        await new Promise(function (resolve) { setTimeout(resolve, 30) })
+      }
+    }
+
+    function rows() {
+      return Array.prototype.slice.call(document.querySelectorAll('[data-dff-browse]'))
+    }
+
+    function rowNames() {
+      return rows().map(function (node) { return text(node.querySelector('.dff-result-name')) })
+    }
+
+    function crumbText() {
+      var bar = document.querySelector('[data-dff-crumbs]')
+      return bar ? text(bar) : ''
+    }
+
+    async function key(key, options) {
+      var input = document.querySelector('[data-dff-input]')
+      input.dispatchEvent(new KeyboardEvent('keydown', Object.assign({
+        key: key, code: key, bubbles: true, cancelable: true,
+      }, options || {})))
+      await new Promise(function (resolve) { setTimeout(resolve, 260) })
+    }
+
+    var ctx = {
+      effect: function (fn) { try { fn() } catch (e) {} return function () {} },
+      get: function () { return undefined },
+      inject: function (names, callback) {
+        callback({
+          effect: ctx.effect,
+          shortcuts: { register: function (command) { shortcuts.push(command); return function () {} } },
+        })
+      },
+      locale: { register: function () {}, bind: function () { return function (key) { return key } } },
+      slots: {
+        inject: function (name, callback) { callback() },
+        register: function (entry, component) { slots.push({ entry: entry, component: component }); return function () {} },
+      },
+    }
+
+    ;(async function run() {
+      var moduleExports = window.__DFF_MODULE__
+      await moduleExports.apply(ctx)
+      var overlay = slots.filter(function (slot) { return slot.entry && slot.entry.name === 'shell.overlay' })[0]
+      ReactDOM.createRoot(document.getElementById('host')).render(React.createElement(overlay.component, {}))
+      await new Promise(function (resolve) { setTimeout(resolve, 50) })
+
+      var shortcut = shortcuts.filter(function (command) { return command.id === 'files.searchName' })[0]
+      shortcut.resolve().run()
+      var input = await waitFor(function () { return document.querySelector('[data-dff-input]') })
+
+      // ── Root listing ────────────────────────────────────────────────────
+      await waitFor(function () { return rows().length }, 5000)
+      check('the empty query lists the workspace root', rowNames().join(',') === 'src,docs,README.md,package.json', rowNames().join(','))
+      check('folders come first', rows().slice(0, 2).every(function (node) { return node.getAttribute('data-kind') === 'dir' }),
+        rows().map(function (node) { return node.getAttribute('data-kind') }).join(','))
+      check('the breadcrumb starts at the root', crumbText().indexOf('ws') !== -1, crumbText())
+      check('folder rows carry a chevron, files an open hint',
+        text(rows()[0]).indexOf('\u203a') !== -1 && text(rows()[2]).indexOf('\u21b5') !== -1,
+        text(rows()[0]).slice(0, 24) + ' | ' + text(rows()[2]).slice(0, 24))
+
+      // ── Click into a folder, then go up ────────────────────────────────
+      rows()[0].click()
+      await waitFor(function () { return rowNames().join(',') === 'api,components,App.vue,main.ts' }, 4000)
+      check('clicking a folder enters it', rowNames().join(',') === 'api,components,App.vue,main.ts', rowNames().join(','))
+      check('the breadcrumb follows the folder', crumbText().indexOf('src') !== -1, crumbText())
+      check('the back hint appears when nested', text(document.querySelector('[data-dff-palette]')).indexOf('browseUp') !== -1)
+
+      await key('Backspace')
+      await waitFor(function () { return rowNames().join(',') === 'src,docs,README.md,package.json' }, 4000)
+      check('Backspace goes up one level', rowNames().join(',') === 'src,docs,README.md,package.json', rowNames().join(','))
+
+      // ── Keyboard: select and open a folder ─────────────────────────────
+      await key('ArrowDown')
+      await key('Enter')
+      await waitFor(function () { return rowNames().join(',') === 'guide.md' }, 4000)
+      check('ArrowDown + Enter enters the second folder', rowNames().join(',') === 'guide.md', rowNames().join(','))
+      await key('Backspace')
+      await waitFor(function () { return rowNames().length === 4 }, 4000)
+      await key('Enter')
+      await waitFor(function () { return rowNames().join(',') === 'api,components,App.vue,main.ts' }, 4000)
+      check('Enter enters the selected folder', rowNames().join(',') === 'api,components,App.vue,main.ts', rowNames().join(','))
+
+      // ── Typing falls back to search, clearing returns to the folder ────
+      setInputValue(input, 'main')
+      await waitFor(function () { return document.querySelectorAll('[data-dff-result]').length > 0 }, 4000)
+      check('typing shows search results instead of the listing',
+        document.querySelectorAll('[data-dff-browse]').length === 0 &&
+        document.querySelectorAll('[data-dff-result]').length === 1,
+        String(document.querySelectorAll('[data-dff-result]').length))
+      setInputValue(input, '')
+      await waitFor(function () { return rowNames().join(',') === 'api,components,App.vue,main.ts' }, 4000)
+      check('clearing the query returns to the same folder', rowNames().join(',') === 'api,components,App.vue,main.ts', rowNames().join(','))
+
+      // ── ArrowRight enters, an empty folder says so ─────────────────────
+      await key('ArrowRight')
+      await waitFor(function () { return rowNames().join(',') === 'survey.ts' }, 4000)
+      check('ArrowRight enters the selected folder', rowNames().join(',') === 'survey.ts', rowNames().join(','))
+      await key('Backspace')
+      await waitFor(function () { return rowNames().length === 4 }, 4000)
+      await key('ArrowDown')
+      await key('ArrowRight')
+      await waitFor(function () { return Boolean(document.querySelector('[data-dff-browse-empty]')) }, 4000)
+      check('an empty folder shows its own state', Boolean(document.querySelector('[data-dff-browse-empty]')))
+      await key('Backspace')
+      await waitFor(function () { return rowNames().length === 4 }, 4000)
+
+      // ── Opening a file ──────────────────────────────────────────────────
+      await key('ArrowDown')
+      await key('ArrowDown')
+      await key('Enter')
+      var editor = await waitFor(function () { return document.querySelector('[data-dff-editor]') }, 5000)
+      check('Enter opens the selected file', Boolean(editor) && editor.value.indexOf('hello') !== -1,
+        editor ? editor.value.slice(0, 20) : 'no editor')
+
+      window.__BROWSE_CHECK__ = { passed: results.every(function (item) { return item.ok }), results: results }
+    })().catch(function (error) {
+      window.__BROWSE_CHECK__ = { passed: false, results: results, error: String(error && error.stack ? error.stack : error) }
+    })
+  })()
+</script>
+</body>
+</html>

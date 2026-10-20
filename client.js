@@ -141,6 +141,15 @@ window.__ModuleLoader__.load({
         intelNoDefinition: '同文件里没有找到定义',
         plainText: '大文件·纯文本',
         plainHint: '文件超过 200 KB，已关闭语法着色以保持输入流畅',
+        browsePlaceholder: '输入文件名搜索，或浏览目录…',
+        browseCount: '{count} 项',
+        browseDirHint: '目录',
+        browseRootHint: '工作区根目录',
+        browseEmpty: '空文件夹',
+        browseEmptyHint: '这个目录里没有可显示的文件。',
+        browseFailed: '无法读取目录',
+        browseTruncated: '只显示前 {count} 项',
+        browseUp: '返回上级',
       },
       en: {
         title: 'File Finder',
@@ -258,6 +267,15 @@ window.__ModuleLoader__.load({
         intelNoDefinition: 'No definition in this file',
         plainText: 'Large file · plain',
         plainHint: 'Over 200 KB, so syntax colours are off to keep typing fast',
+        browsePlaceholder: 'Search file names, or browse this folder…',
+        browseCount: '{count} items',
+        browseDirHint: 'Folder',
+        browseRootHint: 'Workspace root',
+        browseEmpty: 'Empty folder',
+        browseEmptyHint: 'Nothing to show in this folder.',
+        browseFailed: 'Cannot read this folder',
+        browseTruncated: 'Showing the first {count} items',
+        browseUp: 'Up one level',
       },
     }
 
@@ -1891,6 +1909,10 @@ window.__ModuleLoader__.load({
       const [status, setStatus] = useState('')
       const [confirmAction, setConfirmAction] = useState('')
       const [searchTick, setSearchTick] = useState(0)
+      const [browsePath, setBrowsePath] = useState('')
+      const [browseState, setBrowseState] = useState({
+        path: '', parent: null, entries: [], total: 0, truncated: false, loading: false, error: '',
+      })
       const [findOpen, setFindOpen] = useState(false)
       const [findQuery, setFindQuery] = useState('')
       const [findCase, setFindCase] = useState(false)
@@ -1936,6 +1958,8 @@ window.__ModuleLoader__.load({
         setFindQuery('')
         setFindIndex(0)
         setFindFocused(false)
+        setBrowsePath('')
+        setBrowseState({ path: '', parent: null, entries: [], total: 0, truncated: false, loading: false, error: '' })
         setIntelArmed(false)
         setIntelHover(null)
         navStackRef.current = []
@@ -2053,6 +2077,47 @@ window.__ModuleLoader__.load({
           controller.abort()
         }
       }, [request.open, request.token, view, mode, query, root, prefsState])
+
+      // An empty name query becomes a file browser: the panel lists the current
+      // directory and typing falls back to the usual search.
+      const browsing = Boolean(request.open && view === 'search' && mode === 'name' && !query.trim() && root)
+      useEffect(() => {
+        if (!browsing || !root) return undefined
+        const dir = browsePath && browsePath.startsWith(root) ? browsePath : root
+        const controller = new AbortController()
+        let cancelled = false
+        setBrowseState((current) => ({ ...current, loading: current.entries.length === 0, error: '' }))
+        post('/dsh-file-finder/list', { root, path: dir, options: prefs.snapshot() }, controller.signal).then((data) => {
+          if (cancelled) return
+          if (data && data.ok) {
+            setBrowseState({
+              path: data.path || dir,
+              parent: data.parent || null,
+              entries: Array.isArray(data.entries) ? data.entries : [],
+              total: typeof data.total === 'number' ? data.total : 0,
+              truncated: Boolean(data.truncated),
+              loading: false,
+              error: '',
+            })
+          } else {
+            setBrowseState({
+              path: dir, parent: null, entries: [], total: 0, truncated: false, loading: false,
+              error: (data && data.error) || t('browseFailed'),
+            })
+          }
+          setSelected(0)
+        }).catch((reason) => {
+          if (cancelled || (reason && reason.name === 'AbortError')) return
+          setBrowseState({
+            path: dir, parent: null, entries: [], total: 0, truncated: false, loading: false,
+            error: reason instanceof Error ? reason.message : String(reason),
+          })
+        })
+        return () => {
+          cancelled = true
+          controller.abort()
+        }
+      }, [browsing, root, browsePath, request.token, prefsState])
 
       useEffect(() => {
         if (!request.open || view !== 'editor' || !editorRef.current || !file) return
@@ -2264,6 +2329,16 @@ window.__ModuleLoader__.load({
           preview: hit.text,
         }))
       }), [results, mode, root])
+      const browseRows = useMemo(
+        () => (browseState.entries || []).map((entry) => ({
+          path: entry.path,
+          name: entry.name,
+          kind: entry.type === 'dir' ? 'dir' : 'file',
+          line: 1,
+        })),
+        [browseState],
+      )
+      const rows = browsing ? browseRows : flat
 
       if (!presence.mounted) return null
 
@@ -2421,10 +2496,33 @@ window.__ModuleLoader__.load({
 
       function moveSelection(delta) {
         setSelected((index) => {
-          if (!flat.length) return 0
-          const next = (index + delta + flat.length) % flat.length
+          if (!rows.length) return 0
+          const next = (index + delta + rows.length) % rows.length
           return next
         })
+      }
+
+      function enterBrowseDir(item) {
+        if (!item || item.kind !== 'dir') return
+        setBrowsePath(item.path)
+        setSelected(0)
+        setQuery('')
+        if (inputRef.current) inputRef.current.focus()
+      }
+
+      function browseUp() {
+        const current = browseState.path || root
+        const parent = browseState.parent
+        if (!parent || parent === current) return
+        setBrowsePath(parent === root ? '' : parent)
+        setSelected(0)
+        if (inputRef.current) inputRef.current.focus()
+      }
+
+      function chooseBrowseRow(item) {
+        if (!item) return
+        if (item.kind === 'dir') enterBrowseDir(item)
+        else openPrimary(item)
       }
 
       function onPanelKey(event) {
@@ -2473,15 +2571,30 @@ window.__ModuleLoader__.load({
       }
 
       function onSearchKey(event) {
+        const row = rows[selected]
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
           event.preventDefault()
           moveSelection(event.key === 'ArrowDown' ? 1 : -1)
           return
         }
-        if (event.key === 'Enter' && flat[selected]) {
+        if (browsing && event.key === 'ArrowRight' && row && row.kind === 'dir') {
           event.preventDefault()
-          if (event.metaKey || event.ctrlKey) openSecondary(flat[selected])
-          else openPrimary(flat[selected])
+          enterBrowseDir(row)
+          return
+        }
+        if (browsing && event.key === 'Backspace' && !query.trim()) {
+          const current = browseState.path || root
+          if (browseState.parent && browseState.parent !== current) {
+            event.preventDefault()
+            browseUp()
+          }
+          return
+        }
+        if (event.key === 'Enter' && row) {
+          event.preventDefault()
+          if (browsing && row.kind === 'dir') enterBrowseDir(row)
+          else if (event.metaKey || event.ctrlKey) openSecondary(row)
+          else openPrimary(row)
         }
       }
 
@@ -2761,9 +2874,75 @@ window.__ModuleLoader__.load({
         h('span', { className: 'dff-result-enter', 'aria-hidden': 'true' }, '↵'))
       }
 
+      function browseMeta(item) {
+        const relative = relativePath(root, item.path)
+        return dirOf(relative) || t('browseRootHint')
+      }
+
+      function browseRow(item, index) {
+        const isSelected = index === selected
+        const folder = item.kind === 'dir'
+        return h('button', {
+          key: 'browse:' + item.path,
+          type: 'button',
+          role: 'option',
+          id: 'dff-opt-' + String(index),
+          'aria-selected': isSelected ? 'true' : 'false',
+          'data-index': index,
+          'data-dff-browse': 'true',
+          'data-kind': item.kind,
+          'data-path': item.path,
+          'data-selected': isSelected ? 'true' : 'false',
+          tabIndex: -1,
+          className: 'dff-result dff-browse',
+          title: item.path,
+          onMouseEnter: () => setSelected(index),
+          onClick: () => chooseBrowseRow(item),
+        },
+        h('span', { className: 'dff-result-rail', 'aria-hidden': 'true' }),
+        h('span', { className: 'dff-result-glyph' },
+          folder ? h(FolderIcon, { size: 18 }) : h(FileGlyph, { name: item.name, size: 18 })),
+        h('span', { className: 'dff-result-body' },
+          h('span', { className: 'dff-result-line1' },
+            h('span', { className: 'dff-result-name' }, item.name)),
+          h('span', { className: 'dff-result-line2' },
+            h('span', { className: 'dff-result-path' }, browseMeta(item)))),
+        h('span', { className: 'dff-browse-arrow', 'aria-hidden': 'true' }, folder ? '\u203a' : '\u21b5'))
+      }
+
+      function browseCrumbs() {
+        const base = String(root || '').replace(/[\\/]+$/, '')
+        const current = browseState.path || base
+        const relative = relativePath(base, current)
+        const parts = relative ? relative.split('/') : []
+        const items = [{ label: baseName(base) || base, path: '' }]
+        let accumulated = ''
+        for (const part of parts) {
+          accumulated = accumulated ? accumulated + '/' + part : part
+          items.push({ label: part, path: base + '/' + accumulated })
+        }
+        const nodes = [h('span', { key: 'crumbs-glyph', className: 'dff-crumbs-glyph', 'aria-hidden': 'true' }, h(FolderIcon, { size: 13 }))]
+        items.forEach((item, index) => {
+          if (index) nodes.push(h('span', { key: 'sep:' + String(index), className: 'dff-crumb-sep', 'aria-hidden': 'true' }, '/'))
+          nodes.push(h('button', {
+            key: 'crumb:' + String(index),
+            type: 'button',
+            className: 'dff-crumb' + (index === items.length - 1 ? ' is-current' : ''),
+            'data-dff-crumb': item.path || 'root',
+            title: item.path || base,
+            onClick: () => {
+              setBrowsePath(item.path)
+              setSelected(0)
+              if (inputRef.current) inputRef.current.focus()
+            },
+          }, item.label))
+        })
+        return h('div', { className: 'dff-crumbs', 'data-dff-crumbs': 'true' }, nodes)
+      }
+
       function searchView() {
         const needle = query.trim()
-        const idle = !needle && !busy
+        const idle = !needle && !busy && !browsing
         const short = mode === 'content' && needle.length === 1
         return h('div', { className: 'dff-view', key: 'search' },
           h('div', { className: 'dff-head' },
@@ -2785,7 +2964,12 @@ window.__ModuleLoader__.load({
               modeButton('name', t('name')),
               modeButton('content', t('content'))),
             h('div', { className: 'dff-head-right' },
-              h(RootPicker, { roots, value: root, onChange: setRoot, t }),
+              h(RootPicker, {
+                roots,
+                value: root,
+                onChange: (next) => { setRoot(next); setBrowsePath(''); setSelected(0) },
+                t,
+              }),
               h('button', { type: 'button', className: 'dff-icon-btn', 'aria-label': t('close'), onClick: closePanel }, h(CloseIcon, { size: 16 })))),
           h('div', { className: 'dff-search' },
             h('span', { className: 'dff-search-glyph', 'aria-hidden': 'true' }, h(SearchIcon, { size: 17 })),
@@ -2795,7 +2979,9 @@ window.__ModuleLoader__.load({
               'data-dff-input': 'true',
               autoFocus: true,
               value: query,
-              placeholder: mode === 'content' ? t('contentPlaceholder') : t('namePlaceholder'),
+              placeholder: mode === 'content'
+                ? t('contentPlaceholder')
+                : (browsing ? t('browsePlaceholder') : t('namePlaceholder')),
               spellCheck: false,
               autoComplete: 'off',
               autoCorrect: 'off',
@@ -2806,35 +2992,63 @@ window.__ModuleLoader__.load({
               'aria-expanded': 'true',
               'aria-controls': 'dff-list',
               'aria-autocomplete': 'list',
-              'aria-activedescendant': flat.length && flat[selected] ? 'dff-opt-' + String(selected) : undefined,
+              'aria-activedescendant': rows.length && rows[selected] ? 'dff-opt-' + String(selected) : undefined,
             }),
             query ? h('button', {
               type: 'button', className: 'dff-clear', 'aria-label': t('clear'),
               onClick: () => { setQuery(''); setResults([]); if (inputRef.current) inputRef.current.focus() },
             }, h(CloseIcon, { size: 12 })) : null,
-            busy
+            busy || (browsing && browseState.loading)
               ? h('span', { className: 'dff-search-tail' }, h(Spinner, { size: 14 }))
-              : flat.length
+              : flat.length && !browsing
                 ? h('span', { className: 'dff-count', 'aria-label': textOf(t, 'resultCount', { count: flat.length }) }, String(flat.length))
                 : null),
-          busy ? h('span', { className: 'dff-progress', 'aria-hidden': 'true' }, h('span', { className: 'dff-progress-bar' })) : null,
+          busy || (browsing && browseState.loading) ? h('span', { className: 'dff-progress', 'aria-hidden': 'true' }, h('span', { className: 'dff-progress-bar' })) : null,
           h('span', { className: 'dff-sr', role: 'status', 'aria-live': 'polite' },
-            busy ? t('searching') : flat.length ? textOf(t, 'resultCount', { count: flat.length }) : (needle ? t('noResult') : '')),
+            busy ? t('searching')
+              : browsing ? textOf(t, 'browseCount', { count: rows.length })
+                : flat.length ? textOf(t, 'resultCount', { count: flat.length }) : (needle ? t('noResult') : '')),
+          browsing ? browseCrumbs() : null,
           message(),
-          h('div', { className: 'dff-list', id: 'dff-list', role: 'listbox', 'data-dff-list': 'true', 'aria-busy': busy ? 'true' : 'false' },
-            flat.length
-              ? flat.map((item, index) => resultRow(item, index))
-              : busy
-                ? h('div', { className: 'dff-skeleton', 'aria-hidden': 'true' },
-                  [0, 1, 2].map((row) => h('div', { key: row, className: 'dff-skeleton-row', style: { animationDelay: row * 90 + 'ms' } },
-                    h('span', { className: 'dff-skeleton-glyph' }),
-                    h('span', { className: 'dff-skeleton-body' },
-                      h('span', { className: 'dff-skeleton-name' }),
-                      h('span', { className: 'dff-skeleton-path' })))))
-                : h('div', { className: 'dff-empty' },
-                  h('span', { className: 'dff-empty-glyph' }, !root ? h(FolderIcon, { size: 20 }) : short ? h(EditIcon, { size: 18 }) : h(SearchIcon, { size: 20 })),
-                  h('strong', null, !root ? t('noRoot') : short ? t('contentShort') : idle ? t('idleTitle') : t('noResult')),
-                  h('span', null, !root ? t('noRootHint') : short ? t('contentShortHint') : idle ? t('idleHint') : t('noResultHint')))),
+          h('div', { className: 'dff-list', id: 'dff-list', role: 'listbox', 'data-dff-list': 'true', 'aria-busy': busy || (browsing && browseState.loading) ? 'true' : 'false' },
+            browsing
+              ? browseState.error
+                ? h('div', { className: 'dff-empty', 'data-dff-browse-error': 'true' },
+                  h('span', { className: 'dff-empty-glyph' }, h(WarningIcon, { size: 20 })),
+                  h('strong', null, t('browseFailed')),
+                  h('span', null, browseState.error))
+                : browseState.loading && !rows.length
+                  ? h('div', { className: 'dff-skeleton', 'aria-hidden': 'true' },
+                    [0, 1, 2, 3].map((row) => h('div', { key: row, className: 'dff-skeleton-row', style: { animationDelay: row * 90 + 'ms' } },
+                      h('span', { className: 'dff-skeleton-glyph' }),
+                      h('span', { className: 'dff-skeleton-body' },
+                        h('span', { className: 'dff-skeleton-name' }),
+                        h('span', { className: 'dff-skeleton-path' })))))
+                  : rows.length
+                    ? [
+                      ...rows.map((item, index) => browseRow(item, index)),
+                      browseState.truncated
+                        ? h('div', { key: 'truncated', className: 'dff-browse-note', 'data-dff-browse-truncated': 'true' },
+                          h(WarningIcon, { size: 12 }), textOf(t, 'browseTruncated', { count: rows.length }))
+                        : null,
+                    ]
+                    : h('div', { className: 'dff-empty', 'data-dff-browse-empty': 'true' },
+                      h('span', { className: 'dff-empty-glyph' }, h(FolderIcon, { size: 20 })),
+                      h('strong', null, t('browseEmpty')),
+                      h('span', null, t('browseEmptyHint')))
+              : flat.length
+                ? flat.map((item, index) => resultRow(item, index))
+                : busy
+                  ? h('div', { className: 'dff-skeleton', 'aria-hidden': 'true' },
+                    [0, 1, 2].map((row) => h('div', { key: row, className: 'dff-skeleton-row', style: { animationDelay: row * 90 + 'ms' } },
+                      h('span', { className: 'dff-skeleton-glyph' }),
+                      h('span', { className: 'dff-skeleton-body' },
+                        h('span', { className: 'dff-skeleton-name' }),
+                        h('span', { className: 'dff-skeleton-path' })))))
+                  : h('div', { className: 'dff-empty' },
+                    h('span', { className: 'dff-empty-glyph' }, !root ? h(FolderIcon, { size: 20 }) : short ? h(EditIcon, { size: 18 }) : h(SearchIcon, { size: 20 })),
+                    h('strong', null, !root ? t('noRoot') : short ? t('contentShort') : idle ? t('idleTitle') : t('noResult')),
+                    h('span', null, !root ? t('noRootHint') : short ? t('contentShortHint') : idle ? t('idleHint') : t('noResultHint')))),
           h('div', { className: 'dff-foot' },
             h('span', { className: 'dff-hints' },
               h('span', { className: 'dff-hint' }, h(Keycaps, { keys: ['↑', '↓'] }), t('hintNavigate')),
@@ -2844,6 +3058,9 @@ window.__ModuleLoader__.load({
               h('span', { className: 'dff-hint' },
                 h(Keycaps, { keys: mac ? ['⌘', '↵'] : ['Ctrl', '↵'] }),
                 prefsState.openMode === 'preview' ? t('edit') : t('preview')),
+              browsing && browseState.parent && browseState.parent !== (browseState.path || root)
+                ? h('span', { className: 'dff-hint' }, h(Keycaps, { keys: ['⌫'] }), t('browseUp'))
+                : null,
               h('span', { className: 'dff-hint' }, h(Keycaps, { keys: ['esc'] }), t('hintClose'))),
             h('span', { className: 'dff-rootpath', title: root }, h(FolderIcon, { size: 12 }), h('span', { className: 'dff-rootpath-text' }, h('bdi', null, root)))))
       }
@@ -3634,6 +3851,30 @@ window.__ModuleLoader__.load({
       body[data-ds-dark-theme] .dff-ftyp[data-accent="amber"] { color: var(--dsw-static-amber-400); }
 
       /* ── Empty & loading ──────────────────────────────────────────────── */
+      /* ── Browse mode (empty query lists the directory) ─────────────────── */
+      .dff-crumbs {
+        display: flex; align-items: center; gap: 1px; flex: none;
+        margin: 0 4px 6px; padding: 0;
+        color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 18px;
+        overflow: hidden; white-space: nowrap;
+      }
+      .dff-crumbs-glyph { display: inline-flex; margin-right: 5px; color: var(--dsw-alias-label-caption); }
+      .dff-crumb {
+        max-width: 190px; overflow: hidden; text-overflow: ellipsis;
+        padding: 1px 5px; border: 0; border-radius: 5px; background: transparent;
+        color: var(--dsw-alias-label-caption); font: inherit; font-size: 11px; cursor: pointer;
+        transition: background-color 120ms ease, color 120ms ease;
+      }
+      .dff-crumb:hover { background: var(--dsw-alias-bg-module-platform); color: var(--dsw-alias-label-primary); }
+      .dff-crumb.is-current { color: var(--dsw-alias-label-secondary); font-weight: 500; }
+      .dff-crumb-sep { color: var(--dsw-alias-label-tertiary); opacity: 0.65; }
+      .dff-browse-arrow { flex: none; color: var(--dsw-alias-label-tertiary); font-size: 13px; line-height: 18px; }
+      .dff-browse .dff-result-glyph { color: var(--dsw-alias-label-secondary); }
+      .dff-browse-note {
+        display: flex; align-items: center; gap: 6px;
+        padding: 8px 10px 2px; color: var(--dsw-alias-label-tertiary); font-size: 11px;
+      }
+
       .dff-empty {
         display: flex; flex-direction: column; align-items: center; justify-content: center;
         gap: 5px; flex: 1; min-height: 210px; padding: 36px 24px;

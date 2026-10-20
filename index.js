@@ -15,6 +15,7 @@ const CONTENT_HITS_PER_FILE = 3
 const READ_BYTE_CAP = 1_500_000
 const WRITE_CHAR_CAP = 1_000_000
 const QUERY_CAP = 200
+const LIST_ENTRY_CAP = 1000
 
 const IGNORED_DIRS = new Set([
   'node_modules', '.git', 'dist', 'build', 'coverage', '.next', '.nuxt', '.turbo',
@@ -353,6 +354,56 @@ async function searchContent(ctx, rootPath, query, signal, options) {
   }
 }
 
+// One directory at a time, for the panel's browse mode. Same ignore rules and
+// containment as search, so a folder that search skips is not browsable either.
+function parentPathOf(displayPath) {
+  const normalized = String(displayPath || '').replace(/\\/g, '/').replace(/\/+$/, '')
+  const cut = normalized.lastIndexOf('/')
+  return cut <= 0 ? null : normalized.slice(0, cut)
+}
+
+export async function listDirectory(ctx, rootPath, dirPath, signal, options) {
+  const prefs = normalizeSearchOptions(options)
+  const { root, target } = await resolveInside(ctx, rootPath, dirPath)
+  const info = await ctx.fs.stat(target, signal)
+  if (!info || info.type !== 'directory') {
+    throw Object.assign(new Error('当前路径不是目录'), { code: 'not-a-dir' })
+  }
+  let raw = []
+  try {
+    raw = await ctx.fs.listDir(target, signal)
+  } catch (error) {
+    throw Object.assign(new Error('无法读取目录：' + errorText(error)), { code: 'list-failed' })
+  }
+  const dirs = []
+  const files = []
+  for (const entry of raw) {
+    if (!entry || typeof entry.name !== 'string') continue
+    if (entry.type === 'directory') {
+      if (IGNORED_DIRS.has(entry.name) || prefs.extraIgnore.includes(entry.name)) continue
+      dirs.push({ name: entry.name, path: visiblePath(ctx, entry.target), type: 'dir' })
+      continue
+    }
+    if (entry.type !== 'file' || SKIP_FILES.has(entry.name)) continue
+    files.push({ name: entry.name, path: visiblePath(ctx, entry.target), type: 'file' })
+  }
+  const byName = (left, right) => left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: 'base' })
+  dirs.sort(byName)
+  files.sort(byName)
+  const entries = dirs.concat(files)
+  const rootDisplay = visiblePath(ctx, root)
+  const display = visiblePath(ctx, target)
+  return {
+    ok: true,
+    root: rootDisplay,
+    path: display,
+    parent: display === rootDisplay ? null : parentPathOf(display),
+    total: entries.length,
+    truncated: entries.length > LIST_ENTRY_CAP,
+    entries: entries.slice(0, LIST_ENTRY_CAP),
+  }
+}
+
 async function readFile(ctx, rootPath, filePath, signal) {
   const { target } = await resolveInside(ctx, rootPath, filePath)
   const info = await ctx.fs.stat(target, signal)
@@ -546,13 +597,14 @@ async function dispatch(ctx, args, agent, signal) {
   if (action === 'roots') return { ok: true, roots: collectRoots(ctx), current: cwdOf(agent) }
   if (action === 'search-name') return searchName(ctx, root, args.query, signal, args.options)
   if (action === 'search-content') return searchContent(ctx, root, args.query, signal, args.options)
+  if (action === 'list') return listDirectory(ctx, root, args.path, signal, args.options)
   if (action === 'read') return readFile(ctx, root, args.path, signal)
   if (action === 'save') return saveFile(ctx, root, args.path, args.content, args.version, signal)
   throw new Error('未知操作')
 }
 
 function registerRoutes(ctx) {
-  const routes = ['roots', 'search-name', 'search-content', 'read', 'write']
+  const routes = ['roots', 'list', 'search-name', 'search-content', 'read', 'write']
   for (const name of routes) {
     ctx.effect(() => ctx.webServer.register({
       kind: 'exact',
