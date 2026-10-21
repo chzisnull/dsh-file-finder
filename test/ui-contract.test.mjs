@@ -14,9 +14,11 @@ test('files open through the native DSH document preview', () => {
   assert.match(source, /dsh-file-finder\/read/)
 })
 
-test('a missing native preview falls back to the built-in editor', () => {
+test('a missing native preview falls back to a plugin surface', () => {
+  // Both fallback notices are user-visible contract; the browser matrix pins
+  // which surface receives the file.
   assert.match(source, /previewUnavailable/)
-  assert.match(source, /async function openEditor\(item\)/)
+  assert.match(source, /previewUnavailableOther/)
 })
 
 test('the palette and settings expose stable automation hooks', () => {
@@ -60,9 +62,86 @@ test('the search field takes focus as soon as the overlay mounts', () => {
   assert.match(source, /panelRef\.current\.contains\(active\)/)
 })
 
-test('the default opening mode is the native preview', () => {
-  assert.match(source, /openMode: 'preview'/)
-  assert.match(source, /source\.openMode === 'editor' \? 'editor' : 'preview'/)
+test('the stored Open mode is exactly native, viewer or editor', () => {
+  // Native preview stays the default, so upgrading changes nothing.
+  assert.match(source, /const DEFAULTS = \{[^}]*openMode: SURFACE\.NATIVE/)
+  // One enum owns the three stored values; the legacy `preview` spelling is
+  // gone from the values and from every comparison.
+  const enumBlock = source.match(/const SURFACE = \{([^}]*)\}/)
+  assert.ok(enumBlock, 'SURFACE must declare the stored values')
+  for (const value of ['native', 'viewer', 'editor']) {
+    assert.ok(enumBlock[1].includes(`'${value}'`), `SURFACE must contain ${value}`)
+  }
+  assert.doesNotMatch(enumBlock[1], /'preview'/)
+  assert.doesNotMatch(source, /openMode === 'preview'/)
+  assert.doesNotMatch(source, /openMode: 'preview'/)
+  assert.doesNotMatch(source, /openModePreview/)
+})
+
+test('the settings row offers the three File surfaces in both languages', () => {
+  // Every label and hint exists in the zh and en dictionaries.
+  for (const key of ['openModeNative', 'openModeViewer', 'openModeEditor', 'openModeNativeHint', 'openModeViewerHint', 'openModeEditorHint', 'openModeRowHint']) {
+    const hits = source.match(new RegExp(`${key}:`, 'g')) || []
+    assert.equal(hits.length, 2, `${key} must exist in the zh and en dictionaries`)
+  }
+  // The labels are the glossary's File surfaces.
+  assert.match(source, /openModeNative: '原生预览'/)
+  assert.match(source, /openModeNative: 'Native preview'/)
+  assert.match(source, /openModeViewer: '查看器'/)
+  assert.match(source, /openModeViewer: 'Viewer'/)
+  assert.match(source, /openModeEditor: '编辑器'/)
+  assert.match(source, /openModeEditor: 'Editor'/)
+  // The row hint says the choice is global and that media always uses the Viewer.
+  assert.match(source, /openModeRowHint: '[^']*全局[^']*图片[^']*查看器[^']*'/)
+  assert.match(source, /openModeRowHint: '[^']*text[^']*Viewer[^']*'/)
+})
+
+test('the plugin registers nothing into DSH file surfaces', () => {
+  // ADR 0001: additive only. The plugin asks the sidebar to open a file; it
+  // never claims a tab type, a document renderer or a resource type.
+  for (const api of ['sidebarRightTabs', 'documentPreviews', 'resources.register']) {
+    assert.ok(!source.includes(api), `${api} must stay out of the client`)
+  }
+  assert.match(source, /sidebarRight\.openResource\(/)
+})
+
+test('the Open mode is only interpreted by the surface resolver', () => {
+  // The browser matrices pin the decision table; at source level, no caller
+  // gets to branch on the mode (or on the removed `preview` value) itself.
+  assert.doesNotMatch(source, /prefsState\.openMode ===/)
+  assert.doesNotMatch(source, /draft\.openMode ===/)
+  assert.doesNotMatch(source, /openMode === 'preview'/)
+})
+
+test('each File surface fallback has its own bilingual notice', () => {
+  // Text that cannot use the native preview lands in the Viewer and says so.
+  assert.match(source, /previewUnavailable: '[^']*查看器[^']*'/)
+  assert.match(source, /previewUnavailable: '[^']*Viewer[^']*'/)
+  // A kind the Viewer cannot render has the native-unavailable notice...
+  assert.match(source, /previewUnavailableOther: '[^']*查看器[^']*'/)
+  assert.match(source, /previewUnavailableOther: '[^']*Viewer[^']*'/)
+  // ...and a successful native open of that kind has a different notice that
+  // says the type opens in the native preview.
+  assert.match(source, /previewNativeOther: '[^']*原生预览[^']*'/)
+  assert.match(source, /previewNativeOther: '[^']*native preview[^']*'/)
+  const nativeNotice = (source.match(/previewNativeOther: '([^']*)'/) || [])[1]
+  const unavailableNotice = (source.match(/previewUnavailableOther: '([^']*)'/) || [])[1]
+  assert.ok(nativeNotice && unavailableNotice && nativeNotice !== unavailableNotice,
+    'the success and unavailable notices must not be the same string')
+})
+
+test('notices and hints use the glossary term Native preview', () => {
+  // Both dictionaries carry every native-preview message.
+  for (const key of ['previewUnavailable', 'previewUnavailableOther', 'previewNativeOther', 'previewUnavailableAction', 'saveBeforePreview', 'openInSidebar', 'previewUnsupportedHint', 'openModeNativeHint']) {
+    const hits = source.match(new RegExp(`${key}:`, 'g')) || []
+    assert.equal(hits.length, 2, `${key} must exist in the zh and en dictionaries`)
+  }
+  // The glossary's term, not "sidebar preview"/"侧栏预览".
+  assert.match(source, /previewUnavailable: '[^']*原生预览/)
+  assert.match(source, /previewUnavailable: '[^']*native preview/)
+  assert.doesNotMatch(source, /侧栏预览/)
+  assert.doesNotMatch(source, /sidebar preview/i)
+  assert.doesNotMatch(source, /right-sidebar preview/i)
 })
 
 test('every settings change is persisted immediately', () => {
@@ -179,4 +258,23 @@ test('the panel browses directories and keeps one action table on the host', () 
   assert.match(host, /function isIgnoredDir\(/)
   assert.match(host, /crumbs,/)
   assert.doesNotMatch(host, /const routes = \['roots'/)
+})
+
+test('the Open file browser command browses with no default key', () => {
+  const start = source.indexOf("'files.browse'")
+  assert.notEqual(start, -1, 'files.browse must be registered')
+  const block = source.slice(start, source.indexOf(')))', start))
+  // The label resolves through the locale dictionary, so the command reads in
+  // both languages.
+  assert.ok(block.includes('shortcutBrowse'), 'the label must resolve through the dictionary')
+  // The aliases cover English and Chinese so either query finds the command.
+  for (const alias of ['browse files', 'file browser', '目录浏览']) {
+    assert.ok(block.includes(`'${alias}'`), `files.browse must answer to "${alias}"`)
+  }
+  // It must not claim a default key; boot-safety checks every registered
+  // command's `defaults` map as well.
+  assert.doesNotMatch(block, /defaults/, 'files.browse must not declare a default binding')
+  // Both dictionaries carry the command label.
+  assert.match(source, /shortcutBrowse: '打开文件浏览器'/)
+  assert.match(source, /shortcutBrowse: 'Open file browser'/)
 })

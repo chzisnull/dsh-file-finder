@@ -24,6 +24,17 @@ window.__ModuleLoader__.load({
       ? primitives.MarkdownText
       : null
 
+    // The glossary's fixed vocabulary. Every surface choice and kind class the
+    // client compares or emits uses these two names, so the settings values,
+    // the resolver and the DOM cannot drift into different spellings.
+    const KIND_CLASS = { TEXT: 'text', MEDIA: 'media', OTHER: 'other' }
+    const SURFACE = { NATIVE: 'native', VIEWER: 'viewer', EDITOR: 'editor' }
+
+    // Host read kinds the Viewer can draw. Anything else (today that is
+    // `binary`) has no Viewer body, so a text-classified extension that comes
+    // back as one of these belongs in the native preview.
+    const RENDERABLE_KINDS = new Set(['text', 'image', 'video', 'audio', 'pdf', 'html', 'markdown'])
+
     const dict = {
       zh: {
         title: '文件查找',
@@ -64,20 +75,24 @@ window.__ModuleLoader__.load({
         lines: '{count} 行',
         preview: '预览',
         edit: '编辑',
-        previewUnavailable: '侧栏预览不可用，已用内置编辑器打开。',
-        saveBeforePreview: '有未保存的修改。保存或重新加载后，再在侧栏预览。',
-        openInSidebar: '在侧栏预览',
+        previewUnavailable: '原生预览不可用，已改用查看器打开。',
+        previewUnavailableOther: '原生预览不可用，这个类型也无法在查看器中预览。',
+        previewNativeOther: '这种文件类型在原生预览中打开。',
+        previewUnavailableAction: '原生预览不可用。',
+        saveBeforePreview: '有未保存的修改。保存或重新加载后，再在原生预览中打开。',
+        openInSidebar: '在原生预览中打开',
         resultCount: '{count} 个结果',
         hintNavigate: '选择',
         hintClose: '关闭',
         hintSave: '保存',
         hintEditorBack: '返回搜索',
         settingsTitle: '文件查找',
-        settingsLead: '按文件名或文件内容搜索当前工作区，并用 DSH 自带的预览或内置编辑器打开文件。',
+        settingsLead: '按文件名或文件内容搜索当前工作区，再用原生预览、查看器或编辑器打开文件。',
         settingsShortcuts: '快捷键',
         settingsBody: '和 VS Code 一样：⌘/Ctrl+P 按文件名搜索，⇧⌘F / Ctrl+Shift+F 按内容搜索。也可以在「设置 → 编辑快捷键」里修改。',
         shortcutName: '按文件名搜索',
         shortcutContent: '按内容搜索',
+        shortcutBrowse: '打开文件浏览器',
         tryIt: '试用',
         settingsSearch: '搜索',
         settingsSearchHint: '匹配规则与结果数量。',
@@ -93,11 +108,13 @@ window.__ModuleLoader__.load({
         increase: '增加',
         decrease: '减少',
         settingsOpen: '打开方式',
-        openModePreview: '侧栏预览',
-        openModeEditor: '内置编辑',
-        openModePreviewHint: '回车在 DSH 右侧栏预览（只读，和文件树打开一致），⌘/Ctrl+回车改用内置编辑器。',
-        openModeEditorHint: '回车在内置编辑器中打开，⌘/Ctrl+回车改用 DSH 侧栏预览。',
-        openModeRowHint: '决定在搜索结果上按回车时的默认动作。',
+        openModeNative: '原生预览',
+        openModeViewer: '查看器',
+        openModeEditor: '编辑器',
+        openModeNativeHint: '回车在 DSH 右侧栏的原生预览里打开（只读，和文件树一致），⌘/Ctrl+回车改用编辑器。原生不可用时自动改用查看器。',
+        openModeViewerHint: '回车在插件的只读查看器里打开，带语法着色和文件内查找；⌘/Ctrl+回车改用编辑器。',
+        openModeEditorHint: '回车直接进编辑器；⌘/Ctrl+回车改用原生预览。',
+        openModeRowHint: '对所有文本文件全局生效；图片、视频、音频、PDF、HTML、Markdown 始终用查看器打开。',
         settingsWorkspace: '当前工作区',
         noWorkspace: '暂无工作区',
         autosave: '设置会自动保存',
@@ -118,7 +135,7 @@ window.__ModuleLoader__.load({
         unpreviewable: '无法预览此类型',
         editText: '编辑源码',
         previewUnsupported: '这种文件暂时不能在面板里预览',
-        previewUnsupportedHint: '可以用右侧栏预览，或先把这个文件导出到别处再用系统程序打开。',
+        previewUnsupportedHint: '可以在原生预览中打开，或先把这个文件导出到别处再用系统程序打开。',
         previewHtmlNote: 'HTML 在沙箱中运行，脚本无法访问 DSH 页面。',
         kindImage: '图片',
         kindVideo: '视频',
@@ -190,20 +207,24 @@ window.__ModuleLoader__.load({
         lines: '{count} lines',
         preview: 'Preview',
         edit: 'Edit',
-        previewUnavailable: 'The sidebar preview is unavailable, so the built-in editor opened instead.',
-        saveBeforePreview: 'There are unsaved changes. Save or reload before previewing in the sidebar.',
-        openInSidebar: 'Preview in sidebar',
+        previewUnavailable: 'The native preview is unavailable, so the Viewer opened instead.',
+        previewUnavailableOther: 'The native preview is unavailable, and the Viewer cannot show this file type.',
+        previewNativeOther: 'This file type opens in the native preview.',
+        previewUnavailableAction: 'The native preview is unavailable.',
+        saveBeforePreview: 'There are unsaved changes. Save or reload before opening it in the native preview.',
+        openInSidebar: 'Open in native preview',
         resultCount: '{count} results',
         hintNavigate: 'select',
         hintClose: 'close',
         hintSave: 'save',
         hintEditorBack: 'back to search',
         settingsTitle: 'File Finder',
-        settingsLead: 'Search the current workspace by file name or content, and open files with the DSH preview or the built-in editor.',
+        settingsLead: 'Search the current workspace by file name or content, then open files in the native preview, the Viewer or the Editor.',
         settingsShortcuts: 'Shortcuts',
         settingsBody: 'Same as VS Code: Cmd/Ctrl+P searches by file name, and Cmd/Ctrl+Shift+F searches by content. You can still change them in Settings → Edit shortcuts.',
         shortcutName: 'Search files by name',
         shortcutContent: 'Search files by content',
+        shortcutBrowse: 'Open file browser',
         tryIt: 'Try',
         settingsSearch: 'Search',
         settingsSearchHint: 'Match rules and result counts.',
@@ -219,11 +240,13 @@ window.__ModuleLoader__.load({
         increase: 'Increase',
         decrease: 'Decrease',
         settingsOpen: 'Opening',
-        openModePreview: 'Sidebar preview',
-        openModeEditor: 'Built-in editor',
-        openModePreviewHint: 'Enter opens DSH’s right-sidebar preview (read-only, same as the Files tree); Cmd/Ctrl+Enter uses the built-in editor.',
-        openModeEditorHint: 'Enter opens the built-in editor; Cmd/Ctrl+Enter uses DSH’s right-sidebar preview.',
-        openModeRowHint: 'What Enter does on a search result.',
+        openModeNative: 'Native preview',
+        openModeViewer: 'Viewer',
+        openModeEditor: 'Editor',
+        openModeNativeHint: 'Enter opens DSH’s native preview in the right sidebar (read-only, same as the Files tree); Cmd/Ctrl+Enter uses the Editor. A missing native preview falls back to the Viewer.',
+        openModeViewerHint: 'Enter opens the plugin’s read-only Viewer with syntax colours and in-file find; Cmd/Ctrl+Enter uses the Editor.',
+        openModeEditorHint: 'Enter opens the Editor; Cmd/Ctrl+Enter uses the native preview.',
+        openModeRowHint: 'Applies to every text file; images, video, audio, PDF, HTML and Markdown always use the Viewer.',
         settingsWorkspace: 'Current workspace',
         noWorkspace: 'No workspace',
         autosave: 'Settings save automatically',
@@ -244,7 +267,7 @@ window.__ModuleLoader__.load({
         unpreviewable: 'No preview for this type',
         editText: 'Edit source',
         previewUnsupported: 'This file type cannot be previewed here yet',
-        previewUnsupportedHint: 'Open it in the right-sidebar preview, or export the file and use a system app.',
+        previewUnsupportedHint: 'Open it in the native preview, or export the file and use a system app.',
         previewHtmlNote: 'HTML runs sandboxed; its scripts cannot reach the DSH page.',
         kindImage: 'Image',
         kindVideo: 'Video',
@@ -279,7 +302,14 @@ window.__ModuleLoader__.load({
       },
     }
 
-    const DEFAULTS = { caseSensitive: false, extraIgnore: '', nameLimit: 40, contentLimit: 80, openMode: 'preview' }
+    // One settings hint per Open mode, shown for the selected option.
+    const OPEN_MODE_HINTS = {
+      [SURFACE.NATIVE]: 'openModeNativeHint',
+      [SURFACE.VIEWER]: 'openModeViewerHint',
+      [SURFACE.EDITOR]: 'openModeEditorHint',
+    }
+
+    const DEFAULTS = { caseSensitive: false, extraIgnore: '', nameLimit: 40, contentLimit: 80, openMode: SURFACE.NATIVE }
 
     const store = {
       state: { open: false, mode: 'name', token: 0 },
@@ -319,7 +349,8 @@ window.__ModuleLoader__.load({
         extraIgnore: String(source.extraIgnore || ''),
         nameLimit: clampSetting(source.nameLimit, 5, 100, DEFAULTS.nameLimit),
         contentLimit: clampSetting(source.contentLimit, 5, 200, DEFAULTS.contentLimit),
-        openMode: source.openMode === 'editor' ? 'editor' : 'preview',
+        // Legacy `preview` (and anything unrecognised) is the native branch.
+        openMode: surfaceOpenMode(source.openMode),
       }
     }
     function readPrefs() {
@@ -493,8 +524,16 @@ window.__ModuleLoader__.load({
         signal,
       })
       const data = await response.json().catch(() => null)
-      if (!response.ok || !data) throw new Error(data && data.error || `HTTP ${response.status}`)
-      if (data.ok === false && !data.conflict) throw new Error(data.error || '请求失败')
+      if (!response.ok || !data) {
+        const error = new Error((data && data.error) || `HTTP ${response.status}`)
+        if (data && typeof data.code === 'string') error.code = data.code
+        throw error
+      }
+      if (data.ok === false && !data.conflict) {
+        const error = new Error(data.error || '请求失败')
+        if (typeof data.code === 'string') error.code = data.code
+        throw error
+      }
       return data
     }
 
@@ -1521,6 +1560,11 @@ window.__ModuleLoader__.load({
     const KIND_MARKDOWN = /^(md|markdown|mdown|mdx)$/
     const KIND_HTML = /^(html|htm)$/
     const KIND_PDF = /^(pdf)$/
+    // Container and binary formats the Viewer cannot render: Office documents,
+    // archives, executables, fonts and data files. Unknown source extensions
+    // stay text so a new code language still opens; this list is only for
+    // formats whose bytes are opaque to the Viewer.
+    const KIND_OTHER = /^(?:docx?|docm|dotx?|xlsx?|xlsm|xlsb|xltx?|pptx?|pptm|ppsx?|ppsm|potx?|odt|ods|odp|odg|ott|ots|otp|pages|numbers|key|vsdx?|vsdm|pub|one|msg|mpp|zip|tar|gz|tgz|bz2|tbz2?|xz|txz|7z|rar|jar|war|ear|whl|apk|ipa|dmg|iso|pkg|deb|rpm|msi|cab|zst|lz4|exe|dll|so|dylib|bin|dat|class|o|obj|a|lib|wasm|pyc|pyo|woff2?|ttf|otf|eot|tiff?|heic|heif|psd|ai|sketch|fig|parquet|avro|orc|npy|npz|pkl|h5|hdf5|pt|pth|onnx|safetensors|gguf|ckpt|sqlite3?|db|mdb)$/
 
     function previewKindOf(name) {
       const extension = extOf(name)
@@ -1531,6 +1575,54 @@ window.__ModuleLoader__.load({
       if (KIND_MARKDOWN.test(extension)) return 'markdown'
       if (KIND_HTML.test(extension)) return 'html'
       return 'text'
+    }
+
+    // ── File surface resolver ──────────────────────────────────────────────
+    // One decision table for both keys: the file's kind class, the stored Open
+    // mode, and whether Enter (primary) or Cmd/Ctrl+Enter (secondary) was
+    // pressed. The two keys are complements, so they can never disagree.
+    // Legacy settings stored `preview`; anything unrecognised means native.
+    function surfaceOpenMode(value) {
+      if (value === SURFACE.VIEWER) return SURFACE.VIEWER
+      if (value === SURFACE.EDITOR) return SURFACE.EDITOR
+      return SURFACE.NATIVE
+    }
+
+    function resolveSurface(kindClass, openMode, primary) {
+      // Media (image, video, audio, PDF, HTML, Markdown) always uses the Viewer.
+      if (kindClass === KIND_CLASS.MEDIA) return SURFACE.VIEWER
+      // Kinds the Viewer cannot render go to the native preview; the caller
+      // shows the Viewer's unsupported state when it is unavailable.
+      if (kindClass === KIND_CLASS.OTHER) return SURFACE.NATIVE
+      const mode = surfaceOpenMode(openMode)
+      if (mode === SURFACE.VIEWER) return primary ? SURFACE.VIEWER : SURFACE.EDITOR
+      if (mode === SURFACE.EDITOR) return primary ? SURFACE.EDITOR : SURFACE.NATIVE
+      return primary ? SURFACE.NATIVE : SURFACE.EDITOR
+    }
+
+    // The resolver's kind class: media uses the Viewer, text follows the Open
+    // mode, and `other` is everything the Viewer cannot render (Office,
+    // archives, undecodable binaries) so it can prefer the native preview.
+    function kindClassOf(path) {
+      const preview = previewKindOf(path)
+      if (preview !== 'text') return KIND_CLASS.MEDIA
+      if (KIND_OTHER.test(extOf(path))) return KIND_CLASS.OTHER
+      return KIND_CLASS.TEXT
+    }
+
+    // A read that comes back too large or undecodable means the Viewer has no
+    // body for the file, not that the open failed with an error to dump.
+    function isUnsupportedReadError(reason) {
+      const code = reason && reason.code
+      if (code === 'too-large' || code === 'not-text') return true
+      const message = reason instanceof Error ? reason.message : String(reason || '')
+      return /文件过大|不是可编辑的文本文件|too large|not text/i.test(message)
+    }
+
+    // Footer wording for a resolved surface: both read-only surfaces read as
+    // "preview"; only the Editor reads as "edit".
+    function surfaceLabel(t, surface) {
+      return surface === SURFACE.EDITOR ? t('edit') : t('preview')
     }
 
     function base64Url(value) {
@@ -1854,8 +1946,19 @@ window.__ModuleLoader__.load({
 
     /** Small segmented control used by the "Opening" preference row. */
     function Segmented(props) {
-      return h('div', { className: 'dff-seg', 'data-value': props.value, role: 'radiogroup', 'aria-label': props.label },
-        h('span', { className: 'dff-seg-pill', 'aria-hidden': 'true' }),
+      const count = Math.max(props.options.length, 1)
+      const index = Math.max(0, props.options.findIndex((option) => option.value === props.value))
+      return h('div', {
+        className: 'dff-seg',
+        'data-value': props.value,
+        role: 'radiogroup',
+        'aria-label': props.label,
+        style: { '--dff-seg-count': String(count) },
+      },
+        h('span', {
+          className: 'dff-seg-pill', 'aria-hidden': 'true',
+          style: { transform: `translateX(${index * 100}%)` },
+        }),
         props.options.map((option) => h('button', {
           key: option.value,
           type: 'button',
@@ -1969,6 +2072,16 @@ window.__ModuleLoader__.load({
       const [error, setError] = useState('')
       const [notice, setNotice] = useState('')
       const [file, setFile] = useState(null)
+      // The Viewer and the Editor share the code view; this flag makes the text
+      // read-only, hides Save and reports the read-only state.
+      const [readOnly, setReadOnly] = useState(false)
+      // The File surface currently on screen. The open path sets it once; the
+      // render never re-derives it from the file kind or the read-only flag.
+      const [surface, setSurface] = useState(SURFACE.VIEWER)
+      // A short-lived notice that survives closing the palette (the native
+      // preview opens behind the scrim; an inline message would vanish with it).
+      const [toast, setToast] = useState('')
+      const toastTimer = useRef(0)
       const [draft, setDraft] = useState('')
       const [status, setStatus] = useState('')
       const [confirmAction, setConfirmAction] = useState('')
@@ -2014,6 +2127,13 @@ window.__ModuleLoader__.load({
         setNotice('')
         setConfirmAction('')
         setFile(null)
+        setReadOnly(false)
+        setSurface(SURFACE.VIEWER)
+        if (toastTimer.current) {
+          clearTimeout(toastTimer.current)
+          toastTimer.current = 0
+        }
+        setToast('')
         setDraft('')
         setStatus('')
         setFindOpen(false)
@@ -2042,6 +2162,10 @@ window.__ModuleLoader__.load({
         })
         return () => { cancelled = true }
       }, [request.open, request.token, request.mode, ctx])
+
+      useEffect(() => () => {
+        if (toastTimer.current) clearTimeout(toastTimer.current)
+      }, [])
 
       useEffect(() => {
         if (request.open) return undefined
@@ -2461,8 +2585,6 @@ window.__ModuleLoader__.load({
       )
       const rows = browsing ? browseRows : flat
 
-      if (!presence.mounted) return null
-
       function closePanel() {
         if (dirty && view === 'editor') {
           setConfirmAction('close')
@@ -2496,7 +2618,48 @@ window.__ModuleLoader__.load({
         }
       }
 
-      async function openEditor(item) {
+      // A short confirmation outside the palette: the native preview opens
+      // behind the scrim, so an inline message would close with the overlay.
+      function announceNativePreview() {
+        setToast(t('previewNativeOther'))
+        if (toastTimer.current) clearTimeout(toastTimer.current)
+        toastTimer.current = setTimeout(() => {
+          toastTimer.current = 0
+          setToast('')
+        }, 3200)
+      }
+
+      // No plugin surface can render this file. Show the Viewer's own
+      // unsupported state plus the reason, without pretending a text read
+      // would help.
+      function showUnsupportedFile(item) {
+        setFile({ path: item.path, line: item.line || 1, kind: 'binary', text: '' })
+        setDraft('')
+        setStatus('')
+        setError('')
+        setSurface(SURFACE.VIEWER)
+        setReadOnly(true)
+        setView('editor')
+        setNotice(t('previewUnavailableOther'))
+      }
+
+      // The read says the extension lied: binary bytes, too many bytes, or no
+      // text at all. Prefer the native preview; without one, land in the
+      // unsupported state instead of the raw error.
+      function fallbackUnrenderable(item) {
+        if (openNative(item)) {
+          announceNativePreview()
+          store.close()
+          return
+        }
+        showUnsupportedFile(item)
+      }
+
+      // Loads a file into the overlay. The resolver has already chosen a
+      // plugin surface; `surface` says which one, and therefore whether the
+      // text is writable.
+      async function loadFile(item, options) {
+        const target = options && options.surface === SURFACE.EDITOR ? SURFACE.EDITOR : SURFACE.VIEWER
         setBusy(true)
         setError('')
         setStatus('')
@@ -2511,6 +2674,10 @@ window.__ModuleLoader__.load({
           // The host decides the kind from the extension and decodability; media
           // and PDFs arrive without text and are rendered by the viewer.
           const kind = typeof data.kind === 'string' && data.kind ? data.kind : previewKindOf(item.path)
+          if (!RENDERABLE_KINDS.has(kind)) {
+            fallbackUnrenderable(item)
+            return
+          }
           setFile({
             path: data.path,
             version: data.version,
@@ -2520,49 +2687,71 @@ window.__ModuleLoader__.load({
             kind,
           })
           setDraft(text)
+          // Media keeps the Viewer body even when the caller asked for the
+          // Editor (for example a Markdown link); the surface follows what is
+          // actually drawn.
+          setSurface(kind === 'text' ? target : SURFACE.VIEWER)
+          setReadOnly(target === SURFACE.VIEWER)
           setView('editor')
         } catch (reason) {
+          if (isUnsupportedReadError(reason)) {
+            fallbackUnrenderable(item)
+            return
+          }
           setError(reason instanceof Error ? reason.message : String(reason))
         } finally {
           setBusy(false)
         }
       }
 
-      async function openPrimary(item) {
-        if (busy) return
-        // Media and documents have nothing to edit here, so they always open in
-        // the built-in viewer instead of the sidebar/native split.
-        if (previewKindOf(item.path) !== 'text') {
-          await openEditor(item)
-          return
-        }
-        if (prefsState.openMode === 'preview') {
+      async function openEditor(item) {
+        await loadFile(item, { surface: SURFACE.EDITOR })
+      }
+
+      async function openViewer(item) {
+        await loadFile(item, { surface: SURFACE.VIEWER })
+      }
+
+      // The resolver decides the surface; this method only carries it out.
+      async function openSurface(item, primary) {
+        setNotice('')
+        const kindClass = kindClassOf(item.path)
+        const target = resolveSurface(kindClass, prefsState.openMode, primary)
+        if (target === SURFACE.NATIVE) {
           if (openNative(item)) {
+            // The Viewer cannot render this kind, so say why the plugin's own
+            // surface did not take it. Text files need no explanation.
+            if (kindClass === KIND_CLASS.OTHER) announceNativePreview()
             store.close()
             return
           }
+          // DSH has no right sidebar or no live Session. Kinds already known
+          // to be unsupported must not take the text path: it would only end
+          // in a "too large to edit" error. Show the Viewer's unsupported
+          // state instead. Text still falls back to the read-only Viewer.
+          if (kindClass === KIND_CLASS.OTHER) {
+            showUnsupportedFile(item)
+            return
+          }
           setNotice(t('previewUnavailable'))
+          await openViewer(item)
+          return
+        }
+        if (target === SURFACE.VIEWER) {
+          await openViewer(item)
+          return
         }
         await openEditor(item)
       }
 
+      async function openPrimary(item) {
+        if (busy) return
+        await openSurface(item, true)
+      }
+
       async function openSecondary(item) {
         if (busy) return
-        if (previewKindOf(item.path) !== 'text') {
-          await openEditor(item)
-          return
-        }
-        if (prefsState.openMode === 'preview') {
-          setNotice('')
-          await openEditor(item)
-          return
-        }
-        if (openNative(item)) {
-          store.close()
-          return
-        }
-        setNotice(t('previewUnavailable'))
-        await openEditor(item)
+        await openSurface(item, false)
       }
 
       function previewCurrent() {
@@ -2575,7 +2764,7 @@ window.__ModuleLoader__.load({
           store.close()
           return
         }
-        setNotice(t('previewUnavailable'))
+        setNotice(t('previewUnavailableAction'))
       }
 
       async function saveFile() {
@@ -2611,7 +2800,8 @@ window.__ModuleLoader__.load({
           setConfirmAction('reload')
           return
         }
-        await openEditor({ path: file.path, line: file.line })
+        // Reload keeps the surface the file is already in.
+        await loadFile({ path: file.path, line: file.line }, { surface })
       }
 
       function moveSelection(delta) {
@@ -3187,10 +3377,10 @@ window.__ModuleLoader__.load({
               h('span', { className: 'dff-hint' }, h(Keycaps, { keys: ['↑', '↓'] }), t('hintNavigate')),
               h('span', { className: 'dff-hint' },
                 h(Keycaps, { keys: ['↵'] }),
-                prefsState.openMode === 'preview' ? t('preview') : t('edit')),
+                surfaceLabel(t, resolveSurface(KIND_CLASS.TEXT, prefsState.openMode, true))),
               h('span', { className: 'dff-hint' },
                 h(Keycaps, { keys: mac ? ['⌘', '↵'] : ['Ctrl', '↵'] }),
-                prefsState.openMode === 'preview' ? t('edit') : t('preview')),
+                surfaceLabel(t, resolveSurface(KIND_CLASS.TEXT, prefsState.openMode, false))),
               browsing && browseState.parent && browseState.parent !== (browseState.path || root)
                 ? h('span', { className: 'dff-hint' }, h(Keycaps, { keys: ['⌫'] }), t('browseUp'))
                 : null,
@@ -3204,6 +3394,8 @@ window.__ModuleLoader__.load({
         if (!file || typeof file.text !== 'string' || !file.text) return
         setFile({ ...file, kind: 'text' })
         setDraft(file.text)
+        setSurface(SURFACE.EDITOR)
+        setReadOnly(false)
         setFindOpen(false)
         setFindQuery('')
         setFindIndex(0)
@@ -3309,7 +3501,7 @@ window.__ModuleLoader__.load({
 
       function editorView() {
         const name = file ? baseName(file.path) : t('title')
-        const state = dirty ? 'dirty' : status === t('conflict') ? 'conflict' : 'saved'
+        const state = readOnly ? 'readonly' : dirty ? 'dirty' : status === t('conflict') ? 'conflict' : 'saved'
         return h('div', { className: 'dff-view', key: 'editor', ref: editorViewRef },
           h('div', { className: 'dff-head dff-head-editor' },
             h('button', {
@@ -3322,7 +3514,7 @@ window.__ModuleLoader__.load({
               h('small', { title: file ? file.path : '' }, h('bdi', null, file ? (dirOf(relativePath(root, file.path)) || baseName(root) || parentOf(file.path)) : ''))),
             h('span', { className: 'dff-editor-state', 'data-state': state },
               h('span', { className: 'dff-dot', 'aria-hidden': 'true' }),
-              dirty ? t('dirty') : status === t('conflict') ? t('conflict') : status === t('saving') ? t('saving') : t('saved')),
+              readOnly ? t('readOnly') : dirty ? t('dirty') : status === t('conflict') ? t('conflict') : status === t('saving') ? t('saving') : t('saved')),
             h('div', { className: 'dff-editor-actions' },
               navStack.length ? h('button', {
                 type: 'button', className: 'dff-icon-btn', 'data-dff-nav-back': 'true',
@@ -3330,7 +3522,7 @@ window.__ModuleLoader__.load({
               }, h(BackIcon, { size: 16 })) : null,
               h('button', { type: 'button', className: 'dff-icon-btn', 'aria-label': t('openInSidebar'), title: t('openInSidebar'), disabled: busy, onClick: previewCurrent }, h(SidebarIcon, { size: 16 })),
               h('button', { type: 'button', className: 'dff-icon-btn', 'aria-label': t('reload'), title: t('reload'), disabled: busy, onClick: reloadFile }, h(RefreshIcon, { size: 15 })),
-              h('button', { type: 'button', className: 'dff-save', disabled: busy || !dirty, onClick: saveFile },
+              readOnly ? null : h('button', { type: 'button', className: 'dff-save', disabled: busy || !dirty, onClick: saveFile },
                 h(CheckIcon, { size: 14 }), busy ? t('saving') : t('save')),
               h('button', { type: 'button', className: 'dff-icon-btn', 'aria-label': t('close'), onClick: closePanel }, h(CloseIcon, { size: 16 })))),
           confirmAction ? h('div', { className: 'dff-banner is-warn' },
@@ -3347,6 +3539,8 @@ window.__ModuleLoader__.load({
                 if (confirmAction === 'back') {
                   setConfirmAction('')
                   setFile(null)
+                  setReadOnly(false)
+                  setSurface(SURFACE.VIEWER)
                   setDraft('')
                   setStatus('')
                   setView('search')
@@ -3459,9 +3653,11 @@ window.__ModuleLoader__.load({
                   className: 'dff-editor' + (mirrorOn ? ' is-mirrored' : tokenPainted ? ' is-tinted' : ''),
                   'data-dff-editor': 'true',
                   value: draft,
+                  readOnly: readOnly,
                   spellCheck: false,
                   wrap: 'off',
                   onChange: (event) => {
+                    if (readOnly) return
                     const value = event.target.value
                     adjustNavStack(draft, value)
                     setDraft(value)
@@ -3502,35 +3698,50 @@ window.__ModuleLoader__.load({
             h('span', { className: 'dff-intel-line' }, textOf(t, 'intelDefinition', { line: intelHover.line }))) : null,
           h('div', { className: 'dff-foot' },
             h('span', { className: 'dff-hints' },
-              h('span', { className: 'dff-hint' }, h(Keycaps, { keys: mac ? ['⌘', 'S'] : ['Ctrl', 'S'] }), t('hintSave')),
+              readOnly ? null : h('span', { className: 'dff-hint' }, h(Keycaps, { keys: mac ? ['⌘', 'S'] : ['Ctrl', 'S'] }), t('hintSave')),
               h('span', { className: 'dff-hint' }, h(Keycaps, { keys: mac ? ['⌘', 'F'] : ['Ctrl', 'F'] }), t('hintFind')),
               h('span', { className: 'dff-hint' }, h(Keycaps, { keys: ['esc'] }), t('hintEditorBack'))),
             h('span', { className: 'dff-rootpath', title: file ? file.path : '' }, h(FolderIcon, { size: 12 }), h('span', { className: 'dff-rootpath-text' }, h('bdi', null, file ? parentOf(file.path) : '')))))
       }
 
-      return h('div', {
-        key: 'overlay-' + String(request.token),
-        className: 'dff-overlay',
-        'data-state': presence.closing ? 'closing' : 'open',
-        onMouseDown: (event) => { if (event.target === event.currentTarget) closePanel() },
-      },
-      h('div', {
-        className: 'dff-scrim',
-        'aria-hidden': 'true',
-        onMouseDown: (event) => { if (event.target === event.currentTarget) closePanel() },
-      }),
-      h('style', null, css),
-      h('section', {
-        ref: panelRef,
-        className: view === 'editor' ? 'dff-panel dff-panel-editor' : 'dff-panel',
-        'data-dff-palette': 'true',
-        'data-view': view,
-        tabIndex: -1,
-        role: 'dialog',
-        'aria-modal': 'true',
-        'aria-label': t('title'),
-        onKeyDown: onPanelKey,
-      }, view === 'search' ? searchView() : file && file.kind && file.kind !== 'text' ? viewerView() : editorView()))
+      const toastNode = toast
+        ? h('div', {
+          className: 'dff-toast',
+          'data-dff-toast': 'true',
+          role: 'status',
+          'aria-live': 'polite',
+        }, toast)
+        : null
+
+      if (!presence.mounted) return toastNode
+
+      return h(React.Fragment, null,
+        h('div', {
+          key: 'overlay-' + String(request.token),
+          className: 'dff-overlay',
+          'data-state': presence.closing ? 'closing' : 'open',
+          onMouseDown: (event) => { if (event.target === event.currentTarget) closePanel() },
+        },
+        h('div', {
+          className: 'dff-scrim',
+          'aria-hidden': 'true',
+          onMouseDown: (event) => { if (event.target === event.currentTarget) closePanel() },
+        }),
+        h('style', null, css),
+        h('section', {
+          ref: panelRef,
+          className: view === 'editor' ? 'dff-panel dff-panel-editor' : 'dff-panel',
+          'data-dff-palette': 'true',
+          'data-view': view,
+          'data-surface': surface,
+          'data-readonly': readOnly ? 'true' : 'false',
+          tabIndex: -1,
+          role: 'dialog',
+          'aria-modal': 'true',
+          'aria-label': t('title'),
+          onKeyDown: onPanelKey,
+        }, view === 'search' ? searchView() : file && file.kind && file.kind !== 'text' ? viewerView() : editorView())),
+        toastNode)
     }
 
     function SettingsPage(props) {
@@ -3652,7 +3863,7 @@ window.__ModuleLoader__.load({
         h('section', { className: 'dff-card', style: { '--i': 2 } },
           h('div', { className: 'dff-card-head' },
             h('h3', null, t('settingsOpen')),
-            h('p', null, draft.openMode === 'preview' ? t('openModePreviewHint') : t('openModeEditorHint'))),
+            h('p', null, t(OPEN_MODE_HINTS[draft.openMode] || OPEN_MODE_HINTS.native))),
           h('div', { className: 'dff-card-body' },
             h('div', { className: 'dff-srow' },
               h('div', { className: 'dff-srow-text' },
@@ -3662,8 +3873,9 @@ window.__ModuleLoader__.load({
                 value: draft.openMode,
                 label: t('settingsOpen'),
                 options: [
-                  { value: 'preview', label: t('openModePreview') },
-                  { value: 'editor', label: t('openModeEditor') },
+                  { value: SURFACE.NATIVE, label: t('openModeNative') },
+                  { value: SURFACE.VIEWER, label: t('openModeViewer') },
+                  { value: SURFACE.EDITOR, label: t('openModeEditor') },
                 ],
                 onChange: (value) => update({ openMode: value }),
               })))),
@@ -3898,6 +4110,24 @@ window.__ModuleLoader__.load({
       .dff-msg.is-error { color: var(--dsw-alias-state-error-primary); }
       .dff-msg.is-note { color: var(--dsw-alias-state-business-primary); }
       .dff-msg-icon { flex: none; }
+
+      /* A notice that outlives the palette: the native preview opens behind
+         the scrim, so the explanation cannot be an inline message. */
+      .dff-toast {
+        position: fixed; left: 50%; bottom: 30px; z-index: 80;
+        transform: translateX(-50%);
+        max-width: min(460px, calc(100vw - 32px));
+        padding: 9px 16px;
+        border: 1px solid var(--dsw-alias-border-l2);
+        border-radius: 12px;
+        background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 94%, transparent);
+        -webkit-backdrop-filter: blur(18px) saturate(1.2);
+        backdrop-filter: blur(18px) saturate(1.2);
+        color: var(--dsw-alias-label-primary);
+        box-shadow: 0 10px 30px -10px color-mix(in srgb, #0f1115 30%, transparent);
+        font-size: 12px; line-height: 18px; text-align: center;
+        animation: dff-fade 160ms ease-out both;
+      }
 
       /* ── Results ──────────────────────────────────────────────────────── */
       .dff-list {
@@ -4551,17 +4781,16 @@ window.__ModuleLoader__.load({
       }
 
       .dff-seg {
-        position: relative; display: grid; grid-template-columns: 1fr 1fr; flex: none;
+        position: relative; display: grid; grid-template-columns: repeat(var(--dff-seg-count, 2), 1fr); flex: none;
         padding: 3px; border-radius: 10px; background: var(--dsw-alias-bg-module-platform);
       }
       .dff-seg-pill {
         position: absolute; top: 3px; left: 3px;
-        width: calc(50% - 3px); height: calc(100% - 6px);
+        width: calc((100% - 6px) / var(--dff-seg-count, 2)); height: calc(100% - 6px);
         border-radius: 7px; background: var(--dsw-alias-bg-layer-1);
         box-shadow: 0 1px 2px color-mix(in srgb, #0f1115 10%, transparent), 0 0 0 0.5px var(--dsw-alias-border-l2);
         transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
       }
-      .dff-seg[data-value="editor"] .dff-seg-pill { transform: translateX(100%); }
       .dff-seg-option {
         position: relative; z-index: 1; height: 28px; padding: 0 12px;
         border: 0; border-radius: 7px; background: transparent;
@@ -4651,7 +4880,7 @@ window.__ModuleLoader__.load({
 
       @media (prefers-reduced-motion: reduce) {
         .dff-scrim, .dff-panel, .dff-view, .dff-result, .dff-card, .dff-menu, .dff-banner,
-        .dff-empty, .dff-msg, .dff-skeleton-row, .dff-spin, .dff-progress-bar, .dff-find,
+        .dff-empty, .dff-msg, .dff-toast, .dff-skeleton-row, .dff-spin, .dff-progress-bar, .dff-find,
         .dff-editor-state[data-state="dirty"] .dff-dot {
           animation: none !important;
         }
@@ -4703,6 +4932,14 @@ window.__ModuleLoader__.load({
                 () => t('shortcutContent'),
                 ['search file content', 'find in files'],
                 () => store.openSearch('content'),
+              )))
+              // An empty query is the Browser's directory browsing state, so
+              // this command lands there from any surface.
+              scoped.effect(() => register(shortcut(
+                'files.browse',
+                () => t('shortcutBrowse'),
+                ['browse files', 'file browser', '目录浏览'],
+                () => store.openSearch('name'),
               )))
               if (botReady) {
                 scoped.effect(() => register(shortcut(

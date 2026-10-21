@@ -38,9 +38,41 @@
     '/ws/src/App.vue': '<template>\n  <div>hello</div>\n</template>\n',
     '/ws/docs/guide.md': '# Guide\n\nRead me.\n',
   }
+  // Media and unsupported-kind fixtures for the routing matrix. They live in
+  // the workspace root so directory browsing lists them, and a name search
+  // finds them by exact file name, which is how the matrix opens them without
+  // a long run of ArrowDown keys.
+  var EXTRA_FILES = [
+    { name: 'logo.png', kind: 'image', bytes: 2048 },
+    { name: 'clip.mp4', kind: 'video', bytes: 4096 },
+    { name: 'voice.mp3', kind: 'audio', bytes: 1024 },
+    { name: 'manual.pdf', kind: 'pdf', bytes: 512 },
+    { name: 'diagram.html', kind: 'html', text: '<!doctype html><h1>fixture</h1>', bytes: 34 },
+    { name: 'notes.md', kind: 'markdown', text: '# Notes\n\nFixture text.\n', bytes: 22 },
+    { name: 'report.docx', kind: 'binary', bytes: 2048 },
+    { name: 'bundle.zip', kind: 'binary', bytes: 1024 },
+    { name: 'data.bin', kind: 'binary', bytes: 32 },
+    // A text-classified extension whose bytes the host cannot decode: the read
+    // succeeds with `kind: 'binary'`, so the client has to hand the file to the
+    // native preview instead of leaving the Viewer in its unsupported state.
+    { name: 'book.epub', kind: 'binary', bytes: 512 },
+    // Text-classified files the host refuses to read: too large, or not text.
+    { name: 'huge.txt', error: '文件过大，不能在这里编辑', code: 'too-large' },
+    { name: 'locked.txt', error: '这不是可编辑的文本文件', code: 'not-text' },
+  ]
+  var FIXTURES = {}
+  EXTRA_FILES.forEach(function (file) {
+    file.path = '/ws/' + file.name
+    LIST['/ws'].push({ name: file.name, path: file.path, type: 'file' })
+    FIXTURES[file.path] = file
+  })
   function response(body) {
     return { ok: true, status: 200, json: function () { return Promise.resolve(body) } }
   }
+  // Every read the client attempts, so a check can prove a kind that is
+  // already known to be unsupported never takes the text path.
+  var READS = []
+  window.__DFF_READS__ = READS
   window.fetch = function (input, init) {
     var url = typeof input === 'string' ? input : (input && input.url) || ''
     var path = url
@@ -69,12 +101,26 @@
     }
     if (path === '/dsh-file-finder/search-name') {
       var query = String(body.query || '')
-      var results = query.toLowerCase().indexOf('main') === 0
-        ? [{ path: '/ws/src/main.ts', name: 'main.ts', score: 0 }]
-        : []
+      var fixture = EXTRA_FILES.filter(function (file) { return file.name === query })[0]
+      var results = fixture
+        ? [{ path: fixture.path, name: fixture.name, score: 0 }]
+        : query.toLowerCase().indexOf('main') === 0
+          ? [{ path: '/ws/src/main.ts', name: 'main.ts', score: 0 }]
+          : []
       return Promise.resolve(response({ ok: true, mode: 'name', root: '/ws', truncated: false, results: results }))
     }
     if (path === '/dsh-file-finder/read') {
+      READS.push(String(body.path))
+      var entry = FIXTURES[body.path]
+      if (entry && entry.error) {
+        return Promise.resolve(response({ ok: false, error: entry.error, code: entry.code }))
+      }
+      if (entry) {
+        return Promise.resolve(response({
+          ok: true, path: body.path, version: '1', bytes: entry.bytes,
+          kind: entry.kind, text: entry.text || '',
+        }))
+      }
       var html = String(body.path).slice(-5) === '.html'
       var text = html ? '' : (TEXTS[body.path] || 'plain text\n')
       return Promise.resolve(response({
@@ -84,6 +130,19 @@
     }
     return Promise.resolve(response({ ok: false, error: 'unexpected ' + path }))
   }
+</script>
+<script src="./seed-settings.js"></script>
+<script>
+  // The fixture defaults to `editor` so the browse flow below keeps opening
+  // files in the writable editor; `?openMode=` drives the native, viewer or
+  // legacy `preview` value instead (the legacy one must still mean native).
+  (function () {
+    var requested = new URLSearchParams(location.search).get('openMode')
+    var seeded = requested === 'native' || requested === 'viewer' || requested === 'editor' || requested === 'preview'
+      ? requested
+      : 'editor'
+    window.seedFileFinderSettings({ openMode: seeded })
+  })()
 </script>
 </head>
 <body>
@@ -98,6 +157,11 @@
     var results = []
     var shortcuts = []
     var slots = []
+    // The root gains the media/unsupported fixtures appended above, so tests
+    // compare against the fixture itself instead of a hardcoded row count.
+    var ROOT_NAMES = LIST['/ws'].map(function (entry) { return entry.name }).join(',')
+    var ROOT_ROW_COUNT = LIST['/ws'].length
+    var SRC_ROW_COUNT = LIST['/ws/src'].length
 
     function check(name, ok, detail) {
       results.push({ name: name, ok: Boolean(ok), detail: detail === undefined ? null : String(detail) })
@@ -143,9 +207,40 @@
       await new Promise(function (resolve) { setTimeout(resolve, 260) })
     }
 
+    // Records what the plugin asks DSH's right sidebar to open, so a check can
+    // tell the native preview apart from the built-in viewer/editor.
+    var sidebarOpens = []
+    var sidebarRight = {
+      openResource: function (address, options) {
+        sidebarOpens.push({ address: address, options: options || null })
+      },
+    }
+    // The live Session is what gives the address its `session/<id>` segment.
+    var sessions = {
+      list: {
+        getSnapshot: function () {
+          return {
+            ids: ['ses_demo'],
+            byId: {
+              ses_demo: { id: 'ses_demo', cwd: '/ws', retainedBy: { mainView: 1 } },
+            },
+          }
+        },
+        subscribe: function () { return function () {} },
+      },
+    }
+
+    // A host without the right sidebar: `?sidebar=off` makes the service absent
+    // so the native branch has to fall back, the way a bare DSH would.
+    var sidebarAvailable = new URLSearchParams(location.search).get('sidebar') !== 'off'
+
     var ctx = {
       effect: function (fn) { try { fn() } catch (e) {} return function () {} },
-      get: function () { return undefined },
+      get: function (name) {
+        if (name === 'sidebarRight') return sidebarAvailable ? sidebarRight : undefined
+        if (name === 'sessions') return sessions
+        return undefined
+      },
       inject: function (names, callback) {
         callback({
           effect: ctx.effect,
@@ -158,6 +253,7 @@
         register: function (entry, component) { slots.push({ entry: entry, component: component }); return function () {} },
       },
     }
+    window.__DFF_SIDEBAR_OPENS__ = sidebarOpens
 
     ;(async function run() {
       var moduleExports = window.__DFF_MODULE__
@@ -172,7 +268,352 @@
 
       // ── Root listing ────────────────────────────────────────────────────
       await waitFor(function () { return rows().length }, 5000)
-      check('the empty query lists the workspace root', rowNames().join(',') === 'src,docs,README.md,package.json', rowNames().join(','))
+
+      var params = new URLSearchParams(location.search)
+      var scenario = params.get('scenario')
+
+      function panel() { return document.querySelector('[data-dff-palette]') }
+      function surfaceName() {
+        return panel() ? panel().getAttribute('data-surface') : 'closed'
+      }
+      // The panel's own surface attributes, not the presence of a textarea:
+      // the media Viewer renders no textarea, yet it is still the Viewer.
+      function readOnlySurface() {
+        return Boolean(panel()) && panel().getAttribute('data-readonly') === 'true'
+      }
+      function editorValue() {
+        var area = document.querySelector('[data-dff-editor]')
+        return area ? area.value : ''
+      }
+      function hasSave() { return Boolean(document.querySelector('.dff-save')) }
+      // The three read-only checks the matrices share: the Viewer surface is on
+      // screen, it says read-only, and the Editor's Save action is absent.
+      function checkReadOnlyViewer(label) {
+        var ok = surfaceName() === 'viewer' && readOnlySurface() && !hasSave()
+        check(label, ok, 'surface=' + surfaceName() + ' readonly=' + readOnlySurface() + ' save=' + hasSave())
+      }
+      function toast() { return document.querySelector('[data-dff-toast]') }
+      function toastText() { return text(toast()) }
+      function finish() {
+        window.__BROWSE_CHECK__ = { passed: results.every(function (item) { return item.ok }), results: results }
+      }
+
+      // Escape walks back one screen at a time (surface → search → closed), so
+      // closing from any surface may need more than one key.
+      async function closePalette() {
+        for (var step = 0; step < 3 && panel(); step += 1) {
+          document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+          await new Promise(function (resolve) { setTimeout(resolve, 250) })
+        }
+        await waitFor(function () { return !panel() }, 5000)
+      }
+
+      // A fresh palette proves selection resets to the first row.
+      async function freshPalette() {
+        await closePalette()
+        shortcut.resolve().run()
+        await waitFor(function () { return panel() && rowNames().length === ROOT_ROW_COUNT }, 5000)
+      }
+
+      // Move the selection to a row by name. Root rows sort folders first;
+      // package.json stays the text fixture even though media rows were added.
+      async function selectRow(name) {
+        var target = rowNames().indexOf(name)
+        if (target < 0) throw new Error('row not found: ' + name)
+        for (var index = 0; index < target; index += 1) await key('ArrowDown')
+      }
+
+      async function selectTextFile() {
+        await selectRow('package.json')
+      }
+
+      // Kind-matrix helpers. Opening by exact name keeps the enlarged root
+      // fixture from turning every case into a dozen ArrowDowns; Esc returns
+      // to the same search result so both keys can be checked with one search.
+      async function ensureSearch() {
+        if (!panel()) {
+          shortcut.resolve().run()
+          await waitFor(function () { return Boolean(document.querySelector('[data-dff-input]')) }, 5000)
+        } else if (!document.querySelector('[data-dff-input]')) {
+          document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+          await waitFor(function () { return Boolean(document.querySelector('[data-dff-input]')) }, 5000)
+        }
+      }
+
+      async function openByName(name, secondary) {
+        await ensureSearch()
+        setInputValue(document.querySelector('[data-dff-input]'), name)
+        await waitFor(function () {
+          var row = document.querySelector('[data-dff-result]')
+          return row && text(row.querySelector('.dff-result-name')) === name
+        }, 5000)
+        // The debounced search ignores Enter while it is busy, and Escaping out
+        // of a Viewer restarts that search; let it settle before pressing.
+        await new Promise(function (resolve) { setTimeout(resolve, 300) })
+        await key('Enter', secondary ? { metaKey: true, ctrlKey: true } : undefined)
+      }
+
+      async function escapeBackToSearch() {
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+        await waitFor(function () { return Boolean(document.querySelector('[data-dff-input]')) }, 5000)
+      }
+
+      // ── Open-mode matrix: text × mode × Enter/Cmd-Ctrl+Enter ───────────
+      // The expected table comes straight from the spec, independent of the
+      // implementation: Enter follows the stored mode and Cmd/Ctrl+Enter is
+      // always the other side of view/edit.
+      if (scenario === 'open-matrix') {
+        var mode = params.get('openMode')
+        var EXPECT = {
+          native: { primary: 'native', secondary: 'editor' },
+          viewer: { primary: 'viewer', secondary: 'editor' },
+          editor: { primary: 'editor', secondary: 'native' },
+        }[mode]
+        check('the fixture seeded a known Open mode', Boolean(EXPECT), String(mode))
+
+        async function openOnce(secondary, expected) {
+          await freshPalette()
+          await selectTextFile()
+          var before = sidebarOpens.length
+          var label = secondary ? 'Cmd/Ctrl+Enter' : 'Enter'
+          await key('Enter', secondary ? { metaKey: true, ctrlKey: true } : undefined)
+          if (expected === 'native') {
+            await waitFor(function () { return sidebarOpens.length === before + 1 }, 5000)
+            await waitFor(function () { return !panel() }, 5000)
+            check(label + ' asks for the native preview',
+              sidebarOpens[before].address === 'dsh-resource://file/session/ses_demo/package.json',
+              sidebarOpens[before] ? sidebarOpens[before].address : 'no request')
+            check(label + ' hands the file to DSH, not to a plugin surface',
+              !document.querySelector('[data-dff-editor]'))
+            return
+          }
+          if (expected === 'viewer') {
+            await waitFor(function () { return surfaceName() === 'viewer' }, 5000)
+            checkReadOnlyViewer(label + ' opens the read-only Viewer')
+            check(label + ' does not ask the sidebar in Viewer mode', sidebarOpens.length === before,
+              String(sidebarOpens.length - before))
+            return
+          }
+          await waitFor(function () { return surfaceName() === 'editor' }, 5000)
+          check(label + ' opens the writable Editor',
+            surfaceName() === 'editor' && !readOnlySurface() && hasSave(),
+            'surface=' + surfaceName() + ' readonly=' + readOnlySurface() + ' save=' + hasSave())
+          check(label + ' does not ask the sidebar in Editor mode', sidebarOpens.length === before,
+            String(sidebarOpens.length - before))
+        }
+
+        await openOnce(false, EXPECT.primary)
+        await openOnce(true, EXPECT.secondary)
+
+        finish()
+        return
+      }
+
+      // ── Media matrix: every media kind × mode × both keys ──────────────
+      // The spec says the Viewer owns images, video, audio, PDF, HTML and
+      // Markdown whatever the Open mode is, and Cmd/Ctrl+Enter must not change
+      // that. The fake sidebar would record any divergence.
+      if (scenario === 'media-matrix') {
+        var mediaMode = params.get('openMode')
+        var MEDIA = [
+          { name: 'logo.png', kind: 'image' },
+          { name: 'clip.mp4', kind: 'video' },
+          { name: 'voice.mp3', kind: 'audio' },
+          { name: 'manual.pdf', kind: 'pdf' },
+          { name: 'diagram.html', kind: 'html' },
+          { name: 'notes.md', kind: 'markdown' },
+        ]
+        for (var mediaIndex = 0; mediaIndex < MEDIA.length; mediaIndex += 1) {
+          var media = MEDIA[mediaIndex]
+          for (var mediaKey = 0; mediaKey < 2; mediaKey += 1) {
+            var mediaSecondary = mediaKey === 1
+            var mediaLabel = mediaMode + ' · ' + media.name + ' · '
+              + (mediaSecondary ? 'Cmd/Ctrl+Enter' : 'Enter')
+            var mediaBefore = sidebarOpens.length
+            await openByName(media.name, mediaSecondary)
+            await waitFor(function () { return surfaceName() === 'viewer' }, 5000)
+            checkReadOnlyViewer(mediaLabel + ' opens the Viewer')
+            check(mediaLabel + ' renders the ' + media.kind + ' body',
+              Boolean(document.querySelector('[data-dff-viewer="' + media.kind + '"]')),
+              'body=' + String(document.querySelector('[data-dff-viewer]')
+                ? document.querySelector('[data-dff-viewer]').getAttribute('data-dff-viewer')
+                : 'none'))
+            check(mediaLabel + ' never asks the native preview',
+              sidebarOpens.length === mediaBefore, String(sidebarOpens.length - mediaBefore))
+            await escapeBackToSearch()
+          }
+        }
+
+        finish()
+        return
+      }
+
+      // ── Unsupported kinds with a native preview: hand over, both keys ──
+      // Office documents, archives and binaries cannot be rendered by the
+      // Viewer, so both keys go to DSH's preview, whatever the Open mode.
+      if (scenario === 'other-native') {
+        var OTHER = ['report.docx', 'bundle.zip', 'data.bin']
+        for (var otherIndex = 0; otherIndex < OTHER.length; otherIndex += 1) {
+          for (var otherKey = 0; otherKey < 2; otherKey += 1) {
+            var otherSecondary = otherKey === 1
+            var otherLabel = OTHER[otherIndex] + ' · '
+              + (otherSecondary ? 'Cmd/Ctrl+Enter' : 'Enter')
+            var otherBefore = sidebarOpens.length
+            await openByName(OTHER[otherIndex], otherSecondary)
+            await waitFor(function () { return sidebarOpens.length === otherBefore + 1 }, 5000)
+            await waitFor(function () { return !panel() }, 5000)
+            check(otherLabel + ' hands the file to the native preview',
+              sidebarOpens[otherBefore].address
+                === 'dsh-resource://file/session/ses_demo/' + OTHER[otherIndex],
+              sidebarOpens[otherBefore] ? sidebarOpens[otherBefore].address : 'no request')
+            check(otherLabel + ' does not open a plugin surface',
+              !panel() && !document.querySelector('[data-dff-editor]'))
+            var otherToast = await waitFor(function () { return toast() }, 2000)
+            check(otherLabel + ' says the type opens in the native preview',
+              toastText().indexOf('previewNativeOther') !== -1, toastText())
+            check(otherLabel + ' does not reuse the unavailable notice',
+              toastText().indexOf('previewUnavailable') === -1, toastText())
+          }
+        }
+
+        finish()
+        return
+      }
+
+      // ── A read that turns out not to render: hand over to native ───────
+      // `book.epub` has an extension the client classifies as text, but the
+      // host read reports `kind: 'binary'`; `huge.txt` makes the read fail as
+      // too large. Both must end in the native preview (every Open mode) with
+      // the "opens in the native preview" notice, not the Viewer's dead end.
+      if (scenario === 'fallback-native') {
+        var fallbackFile = params.get('file') || 'book.epub'
+        var fallbackBefore = sidebarOpens.length
+        await openByName(fallbackFile, false)
+        await waitFor(function () { return sidebarOpens.length === fallbackBefore + 1 }, 5000)
+        check(fallbackFile + ' opens in the native preview after the read',
+          sidebarOpens[fallbackBefore].address
+            === 'dsh-resource://file/session/ses_demo/' + fallbackFile,
+          sidebarOpens[fallbackBefore] ? sidebarOpens[fallbackBefore].address : 'no request')
+        await waitFor(function () { return !panel() }, 5000)
+        var fallbackToast = await waitFor(function () { return toast() }, 2000)
+        check(fallbackFile + ' says the type opens in the native preview',
+          toastText().indexOf('previewNativeOther') !== -1, toastText())
+        check(fallbackFile + ' does not reuse the unavailable notice',
+          toastText().indexOf('previewUnavailable') === -1, toastText())
+        finish()
+        return
+      }
+
+      // ── A read that turns out not to render, with no native preview ────
+      // With no sidebar left, the Viewer's unsupported state and its native-
+      // unavailable notice replace the raw read error.
+      if (scenario === 'fallback-unavailable') {
+        var failedFile = params.get('file') || 'book.epub'
+        await openByName(failedFile, false)
+        await waitFor(function () { return surfaceName() === 'viewer' }, 5000)
+        checkReadOnlyViewer(failedFile + ' falls back to the read-only Viewer')
+        check(failedFile + ' lands in the Viewer unsupported state',
+          Boolean(document.querySelector('.dff-viewer-empty')))
+        check(failedFile + ' explains the unsupported type with the unavailable notice',
+          text(panel()).indexOf('previewUnavailableOther') !== -1
+            && !/previewUnavailable(?!Other)/.test(text(panel())),
+          text(panel()).slice(-160))
+        check(failedFile + ' does not show the raw read error',
+          !document.querySelector('.dff-msg.is-error'), text(document.querySelector('.dff-msg.is-error')))
+        check(failedFile + ' never asks a missing sidebar',
+          sidebarOpens.length === 0, String(sidebarOpens.length))
+        check(failedFile + ' was still read once',
+          window.__DFF_READS__.length === 1, window.__DFF_READS__.join(','))
+        finish()
+        return
+      }
+
+      // ── Unsupported kinds without a native preview: unsupported state ──
+      // With no sidebar service the Viewer is the only place left; it must
+      // say that this type cannot be rendered here, not that it was switched
+      // to the Viewer (that notice is for text files).
+      if (scenario === 'other-unavailable') {
+        var UNAVAILABLE = ['report.docx', 'bundle.zip', 'data.bin']
+        for (var unavailableIndex = 0; unavailableIndex < UNAVAILABLE.length; unavailableIndex += 1) {
+          for (var unavailableKey = 0; unavailableKey < 2; unavailableKey += 1) {
+            var unavailableSecondary = unavailableKey === 1
+            var unavailableLabel = UNAVAILABLE[unavailableIndex] + ' · '
+              + (unavailableSecondary ? 'Cmd/Ctrl+Enter' : 'Enter')
+            await openByName(UNAVAILABLE[unavailableIndex], unavailableSecondary)
+            await waitFor(function () { return surfaceName() === 'viewer' }, 5000)
+            checkReadOnlyViewer(unavailableLabel + ' falls back to the read-only Viewer')
+            check(unavailableLabel + ' lands in the Viewer unsupported state',
+              Boolean(document.querySelector('.dff-viewer-empty')))
+            check(unavailableLabel + ' explains the unsupported type',
+              text(panel()).indexOf('previewUnavailableOther') !== -1
+                && !/previewUnavailable(?!Other)/.test(text(panel())),
+              text(panel()).slice(-160))
+            check(unavailableLabel + ' never asks a missing sidebar',
+              sidebarOpens.length === 0, String(sidebarOpens.length))
+            await escapeBackToSearch()
+          }
+        }
+
+        check('known unsupported kinds never attempt a text read',
+          window.__DFF_READS__.length === 0, window.__DFF_READS__.join(','))
+        finish()
+        return
+      }
+
+      // ── A stored legacy `preview` value still means the native preview ──
+      // The seed above writes the old value verbatim; the client's migration
+      // has to treat it as `native` for both keys.
+      if (scenario === 'legacy-preview-enter') {
+        await selectTextFile()
+        await key('Enter')
+        await waitFor(function () { return sidebarOpens.length === 1 }, 5000)
+        check('Enter in the legacy preview value asks for the native preview',
+          sidebarOpens[0].address === 'dsh-resource://file/session/ses_demo/package.json',
+          sidebarOpens[0] ? sidebarOpens[0].address : 'no request')
+        check('the native request keeps the result line',
+          Boolean(sidebarOpens[0] && sidebarOpens[0].options && sidebarOpens[0].options.params
+            && sidebarOpens[0].options.params.line === 1),
+          sidebarOpens[0] && sidebarOpens[0].options ? JSON.stringify(sidebarOpens[0].options) : 'no options')
+        await waitFor(function () { return !panel() }, 5000)
+        check('the native preview takes the file instead of the editor',
+          !document.querySelector('[data-dff-editor]'))
+
+        // The secondary key is the complement: the writable editor.
+        await freshPalette()
+        await selectTextFile()
+        await key('Enter', { metaKey: true, ctrlKey: true })
+        await waitFor(function () { return surfaceName() === 'editor' }, 5000)
+        check('Cmd/Ctrl+Enter in the legacy preview value opens the editor',
+          surfaceName() === 'editor' && !readOnlySurface())
+        check('the editor does not ask the sidebar again', sidebarOpens.length === 1, String(sidebarOpens.length))
+
+        finish()
+        return
+      }
+
+      // ── Native unavailable: Viewer + notice, never a dead end ──────────
+      // Both native rows of the table use this path: Enter in Native mode and
+      // Cmd/Ctrl+Enter in Editor mode.
+      if (scenario === 'native-unavailable') {
+        var fromEditorMode = params.get('openMode') === 'editor'
+        var keyLabel = fromEditorMode ? 'Cmd/Ctrl+Enter' : 'Enter'
+        await selectTextFile()
+        await key('Enter', fromEditorMode ? { metaKey: true, ctrlKey: true } : undefined)
+        await waitFor(function () { return surfaceName() === 'viewer' }, 5000)
+        checkReadOnlyViewer(keyLabel + ' with a missing native preview falls back to the read-only Viewer')
+        var area = document.querySelector('[data-dff-editor]')
+        check('the fallback still shows the file',
+          Boolean(area) && editorValue().indexOf('plain text') !== -1,
+          area ? editorValue().slice(0, 20) : 'no textarea')
+        check('the fallback shows the unavailable notice',
+          text(panel()).indexOf('previewUnavailable') !== -1, text(panel()).slice(-120))
+        check('the fallback never asks a missing sidebar', sidebarOpens.length === 0, String(sidebarOpens.length))
+
+        finish()
+        return
+      }
+
+      check('the empty query lists the workspace root', rowNames().join(',') === ROOT_NAMES, rowNames().join(','))
       check('folders come first', rows().slice(0, 2).every(function (node) { return node.getAttribute('data-kind') === 'dir' }),
         rows().map(function (node) { return node.getAttribute('data-kind') }).join(','))
       check('the breadcrumb starts at the root', crumbText().indexOf('ws') !== -1, crumbText())
@@ -188,8 +629,8 @@
       check('the back hint appears when nested', text(document.querySelector('[data-dff-palette]')).indexOf('browseUp') !== -1)
 
       await key('Backspace')
-      await waitFor(function () { return rowNames().join(',') === 'src,docs,README.md,package.json' }, 4000)
-      check('Backspace goes up one level', rowNames().join(',') === 'src,docs,README.md,package.json', rowNames().join(','))
+      await waitFor(function () { return rowNames().join(',') === ROOT_NAMES }, 4000)
+      check('Backspace goes up one level', rowNames().join(',') === ROOT_NAMES, rowNames().join(','))
 
       // ── Keyboard: select and open a folder ─────────────────────────────
       await key('ArrowDown')
@@ -197,7 +638,7 @@
       await waitFor(function () { return rowNames().join(',') === 'guide.md,page.html' }, 4000)
       check('ArrowDown + Enter enters the second folder', rowNames().join(',') === 'guide.md,page.html', rowNames().join(','))
       await key('Backspace')
-      await waitFor(function () { return rowNames().length === 4 }, 4000)
+      await waitFor(function () { return rowNames().length === ROOT_ROW_COUNT }, 4000)
       await key('Enter')
       await waitFor(function () { return rowNames().join(',') === 'api,components,App.vue,main.ts' }, 4000)
       check('Enter enters the selected folder', rowNames().join(',') === 'api,components,App.vue,main.ts', rowNames().join(','))
@@ -206,7 +647,7 @@
       document.querySelector('[data-dff-mode="content"]').click()
       await new Promise(function (resolve) { setTimeout(resolve, 250) })
       check('content mode with an empty query still browses',
-        rows().length === 4 && Boolean(document.querySelector('[data-dff-crumbs]')),
+        rows().length === LIST['/ws/src'].length && Boolean(document.querySelector('[data-dff-crumbs]')),
         rows().length + ' rows, crumbs=' + Boolean(document.querySelector('[data-dff-crumbs]')))
       document.querySelector('[data-dff-mode="name"]').click()
       await new Promise(function (resolve) { setTimeout(resolve, 250) })
@@ -227,21 +668,21 @@
       await waitFor(function () { return rowNames().join(',') === 'survey.ts' }, 4000)
       check('ArrowRight enters the selected folder', rowNames().join(',') === 'survey.ts', rowNames().join(','))
       await key('Backspace')
-      await waitFor(function () { return rowNames().length === 4 }, 4000)
+      await waitFor(function () { return rowNames().length === SRC_ROW_COUNT }, 4000)
       await key('ArrowDown')
       await key('ArrowRight')
       await waitFor(function () { return Boolean(document.querySelector('[data-dff-browse-empty]')) }, 4000)
       check('an empty folder shows its own state', Boolean(document.querySelector('[data-dff-browse-empty]')))
       await key('Backspace')
-      await waitFor(function () { return rowNames().length === 4 }, 4000)
+      await waitFor(function () { return rowNames().length === SRC_ROW_COUNT }, 4000)
 
       // ── Opening a file ──────────────────────────────────────────────────
       await key('ArrowDown')
       await key('ArrowDown')
       await key('Enter')
       var editor = await waitFor(function () { return document.querySelector('[data-dff-editor]') }, 5000)
-      check('Enter opens the selected file', Boolean(editor) && editor.value.indexOf('hello') !== -1,
-        editor ? editor.value.slice(0, 20) : 'no editor')
+      check('Enter opens the selected file', Boolean(editor) && editorValue().indexOf('hello') !== -1,
+        editor ? editorValue().slice(0, 20) : 'no editor')
 
       // ── Escape walks back one screen at a time ─────────────────────────
       document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
@@ -249,7 +690,7 @@
       check('Escape returns from the editor to its folder', rowNames().join(',') === 'api,components,App.vue,main.ts', rowNames().join(','))
 
       await key('Backspace')
-      await waitFor(function () { return rowNames().length === 4 }, 4000)
+      await waitFor(function () { return rowNames().length === ROOT_ROW_COUNT }, 4000)
       await key('ArrowDown')
       await key('Enter')
       await waitFor(function () { return rowNames().join(',') === 'guide.md,page.html' }, 4000)
@@ -279,15 +720,31 @@
 
       await new Promise(function (resolve) { setTimeout(resolve, 200) })
       document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
-      await waitFor(function () { return rowNames().length === 4 }, 4000)
-      check('Escape walks up to the parent folder', rowNames().length === 4, rowNames().join(','))
+      await waitFor(function () { return rowNames().length === ROOT_ROW_COUNT }, 4000)
+      check('Escape walks up to the parent folder', rowNames().length === ROOT_ROW_COUNT, rowNames().join(','))
 
       await new Promise(function (resolve) { setTimeout(resolve, 200) })
       document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
       await new Promise(function (resolve) { setTimeout(resolve, 400) })
       check('Escape at the root closes the panel', !document.querySelector('[data-dff-palette]'))
 
-      window.__BROWSE_CHECK__ = { passed: results.every(function (item) { return item.ok }), results: results }
+      // ── Native preview requests are observable ─────────────────────────
+      // This fixture seeds Open mode `editor`, so Cmd/Ctrl+Enter on a text file
+      // is the native branch. The fake sidebar service records the ask.
+      shortcut.resolve().run()
+      await waitFor(function () { return rowNames().length === ROOT_ROW_COUNT }, 5000)
+      await key('ArrowDown')
+      await key('ArrowDown')
+      await key('ArrowDown')
+      await key('Enter', { metaKey: true, ctrlKey: true })
+      await waitFor(function () { return sidebarOpens.length === 1 }, 5000)
+      check('Cmd/Ctrl+Enter in editor mode asks for the native preview',
+        sidebarOpens[0].address === 'dsh-resource://file/session/ses_demo/package.json',
+        sidebarOpens[0] ? sidebarOpens[0].address : 'no request')
+      await waitFor(function () { return !document.querySelector('[data-dff-palette]') }, 5000)
+      check('the native preview closes the palette', !document.querySelector('[data-dff-palette]'))
+
+      finish()
     })().catch(function (error) {
       window.__BROWSE_CHECK__ = { passed: false, results: results, error: String(error && error.stack ? error.stack : error) }
     })

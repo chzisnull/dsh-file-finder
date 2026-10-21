@@ -697,7 +697,8 @@ function registerRoutes(ctx) {
           const value = await dispatch(ctx, { ...body, action }, undefined, controller.signal)
           if (!res.writableEnded) sendJson(res, 200, value)
         } catch (error) {
-          if (!res.writableEnded) sendJson(res, 200, { ok: false, error: errorText(error) })
+          const code = error && typeof error.code === 'string' ? error.code : undefined
+          if (!res.writableEnded) sendJson(res, 200, { ok: false, error: errorText(error), code })
         }
       },
     }), `dsh-file-finder: /dsh-file-finder/${route}`)

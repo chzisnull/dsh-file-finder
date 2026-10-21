@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Browser check for the empty-query directory browser.
+ * Browser check for the empty-query directory browser and the Open-mode table.
  *
  * Serves the repository and mounts `preview/browse-check.html`, which opens the
  * palette against a fake workspace tree. It verifies that an empty query lists
@@ -8,6 +8,20 @@
  * and Backspace move between levels, that the breadcrumb follows, that typing
  * switches to search and clearing returns to the folder, and that opening a file
  * still lands in the editor.
+ *
+ * The fixture seeds the plugin's settings before mount and installs a recording
+ * fake `sidebarRight` service, so the check also verifies which key asks for the
+ * native preview. Short fixtures pin the Open-mode table — text × native /
+ * viewer / editor × Enter and Cmd/Ctrl+Enter — plus the legacy `preview` value
+ * and the fallback when the host has no right sidebar.
+ *
+ * A second matrix pins kind routing: images, video, audio, PDF, HTML and
+ * Markdown open in the Viewer for both keys under every Open mode; Office,
+ * archive and binary kinds go to the native preview when it exists, and fall
+ * back to the Viewer's unsupported state with their own notice when it does
+ * not. Post-read fixtures cover a text extension whose bytes are binary and a
+ * read that fails as too large / not text: native when available, unsupported
+ * state with the unavailable notice otherwise.
  *
  *   node preview/browse-check.mjs
  *
@@ -96,6 +110,23 @@ function loadPlaywright() {
   throw new Error(`cannot resolve Playwright. Tried:\n  ${errors.join('\n  ')}`)
 }
 
+async function runFixture(browser, port, query) {
+  const page = await browser.newPage({ viewport: { width: 1200, height: 820 } })
+  const pageErrors = []
+  page.on('pageerror', (error) => pageErrors.push(String(error && error.message ? error.message : error)))
+  try {
+    await page.goto(`http://127.0.0.1:${port}/preview/browse-check.html${query}`, {
+      waitUntil: 'load',
+      timeout: 30000,
+    })
+    await page.waitForFunction(() => Boolean(window.__BROWSE_CHECK__), undefined, { timeout: 25000 })
+    const result = await page.evaluate(() => window.__BROWSE_CHECK__)
+    return { result, pageErrors }
+  } finally {
+    await page.close()
+  }
+}
+
 async function main() {
   ensureTheme()
   const { chromium } = loadPlaywright()
@@ -109,20 +140,46 @@ async function main() {
     if (!ok) failures.push(name)
   }
   try {
-    const page = await browser.newPage({ viewport: { width: 1200, height: 820 } })
-    const pageErrors = []
-    page.on('pageerror', (error) => pageErrors.push(String(error && error.message ? error.message : error)))
-    await page.goto(`http://127.0.0.1:${port}/preview/browse-check.html`, { waitUntil: 'load', timeout: 30000 })
-    await page.waitForFunction(() => Boolean(window.__BROWSE_CHECK__), undefined, { timeout: 25000 })
-    const result = await page.evaluate(() => window.__BROWSE_CHECK__)
-    if (!result || !Array.isArray(result.results) || result.results.length === 0) {
-      check('fixture produced results', false, result && result.error)
-    } else {
-      for (const item of result.results) check(item.name, item.ok, item.detail)
+    // The main fixture drives browsing (seeded `editor` mode keeps Enter in the
+    // writable editor). The short fixtures pin the Open-mode table: text × the
+    // three modes × Enter and Cmd/Ctrl+Enter, the legacy `preview` value, the
+    // fallback when DSH has no right sidebar, and the media/unsupported-kind
+    // routing matrices.
+    const fixtures = [
+      { label: 'editor mode', query: '?openMode=editor' },
+      { label: 'open matrix · native', query: '?openMode=native&scenario=open-matrix' },
+      { label: 'open matrix · viewer', query: '?openMode=viewer&scenario=open-matrix' },
+      { label: 'open matrix · editor', query: '?openMode=editor&scenario=open-matrix' },
+      { label: 'media matrix · native', query: '?openMode=native&scenario=media-matrix' },
+      { label: 'media matrix · viewer', query: '?openMode=viewer&scenario=media-matrix' },
+      { label: 'media matrix · editor', query: '?openMode=editor&scenario=media-matrix' },
+      { label: 'unsupported kinds · native available', query: '?openMode=viewer&scenario=other-native' },
+      { label: 'unsupported kinds · native unavailable', query: '?openMode=viewer&sidebar=off&scenario=other-unavailable' },
+      { label: 'post-read fallback · viewer', query: '?openMode=viewer&scenario=fallback-native&file=book.epub' },
+      { label: 'post-read fallback · editor', query: '?openMode=editor&scenario=fallback-native&file=book.epub' },
+      { label: 'post-read fallback unavailable · viewer', query: '?openMode=viewer&sidebar=off&scenario=fallback-unavailable&file=book.epub' },
+      { label: 'post-read fallback unavailable · editor', query: '?openMode=editor&sidebar=off&scenario=fallback-unavailable&file=book.epub' },
+      { label: 'read failure fallback · viewer', query: '?openMode=viewer&scenario=fallback-native&file=huge.txt' },
+      { label: 'read failure fallback · editor', query: '?openMode=editor&scenario=fallback-native&file=huge.txt' },
+      { label: 'read failure unavailable · viewer', query: '?openMode=viewer&sidebar=off&scenario=fallback-unavailable&file=huge.txt' },
+      { label: 'read failure unavailable · editor', query: '?openMode=editor&sidebar=off&scenario=fallback-unavailable&file=huge.txt' },
+      { label: 'not-text failure fallback · viewer', query: '?openMode=viewer&scenario=fallback-native&file=locked.txt' },
+      { label: 'not-text failure unavailable · viewer', query: '?openMode=viewer&sidebar=off&scenario=fallback-unavailable&file=locked.txt' },
+      { label: 'legacy preview value', query: '?openMode=preview&scenario=legacy-preview-enter' },
+      { label: 'native unavailable', query: '?openMode=native&sidebar=off&scenario=native-unavailable' },
+      { label: 'native unavailable from editor mode', query: '?openMode=editor&sidebar=off&scenario=native-unavailable' },
+    ]
+    for (const fixture of fixtures) {
+      const { result, pageErrors } = await runFixture(browser, port, fixture.query)
+      const prefix = `${fixture.label}: `
+      if (!result || !Array.isArray(result.results) || result.results.length === 0) {
+        check(`${prefix}fixture produced results`, false, result && result.error)
+      } else {
+        for (const item of result.results) check(prefix + item.name, item.ok, item.detail)
+      }
+      if (result && result.error) check(`${prefix}fixture completed`, false, result.error)
+      check(`${prefix}no page errors`, pageErrors.length === 0, pageErrors.join(' | '))
     }
-    if (result && result.error) check('fixture completed', false, result.error)
-    check('no page errors', pageErrors.length === 0, pageErrors.join(' | '))
-    await page.close()
   } finally {
     await browser.close()
     await new Promise((done) => server.close(done))

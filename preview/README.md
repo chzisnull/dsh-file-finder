@@ -191,7 +191,7 @@ preview/
   find-check.mjs     editor line-gutter + in-file find checks (`npm run check:find`)
   viewer-check.mjs   image/video/audio/PDF/HTML/Markdown viewer checks (`npm run check:viewer`)
   intel-check.mjs    ⌘ hover / same-file jump / back checks (`npm run check:intel`)
-  browse-check.mjs   empty-query directory browsing checks (`npm run check:browse`)
+  browse-check.mjs   directory browsing + Open-mode/kind surface checks (`npm run check:browse`)
   token-check.mjs    syntax colour / window / IME / large-file checks (`npm run check:tokens`)
   bot-check.mjs      DS Bot bridge checks (`npm run check:bot`)
   vendor/           React 18.3.1 UMD builds
