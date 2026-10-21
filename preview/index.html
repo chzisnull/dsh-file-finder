@@ -19,7 +19,7 @@
     })();
     // Seed the plugin's persisted settings so the settings page shows realistic
     // values instead of empty defaults. Runs before client.js reads localStorage.
-    // The editor state needs the built-in editor (the harness has no native
+    // The editor state needs the writable Editor (the harness has no native
     // sidebar-preview service); every other state keeps the real default.
     (function () {
       try {
@@ -29,7 +29,7 @@
           extraIgnore: 'tmp, coverage',
           nameLimit: 40,
           contentLimit: 80,
-          openMode: editorState ? 'editor' : 'preview'
+          openMode: editorState ? 'editor' : 'native'
         }));
       } catch (error) { /* file:// or private mode */ }
     })();

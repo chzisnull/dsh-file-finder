@@ -60,9 +60,45 @@ test('the search field takes focus as soon as the overlay mounts', () => {
   assert.match(source, /panelRef\.current\.contains\(active\)/)
 })
 
-test('the default opening mode is the native preview', () => {
-  assert.match(source, /openMode: 'preview'/)
-  assert.match(source, /source\.openMode === 'editor' \? 'editor' : 'preview'/)
+test('the stored Open mode is exactly native, viewer or editor', () => {
+  // Native preview stays the default, so upgrading changes nothing.
+  assert.match(source, /const DEFAULTS = \{[^}]*openMode: 'native' \}/)
+  // One normalizer owns the enum: legacy `preview` and anything unknown become
+  // `native`, while `viewer` and `editor` survive.
+  assert.match(source, /openMode: surfaceOpenMode\(source\.openMode\)/)
+  // Nothing compares against the removed `preview` value any more.
+  assert.doesNotMatch(source, /openMode === 'preview'/)
+  assert.doesNotMatch(source, /openMode: 'preview'/)
+  assert.doesNotMatch(source, /openModePreview/)
+})
+
+test('the settings row offers the three File surfaces with a hint each', () => {
+  // The segmented control keeps one option per File surface, in glossary order.
+  assert.match(source, /value: 'native', label: t\('openModeNative'\)/)
+  assert.match(source, /value: 'viewer', label: t\('openModeViewer'\)/)
+  assert.match(source, /value: 'editor', label: t\('openModeEditor'\)/)
+  // Each option owns a hint; the card header shows the selected one.
+  assert.match(source, /const OPEN_MODE_HINTS = \{ native: 'openModeNativeHint', viewer: 'openModeViewerHint', editor: 'openModeEditorHint' \}/)
+  assert.match(source, /t\(OPEN_MODE_HINTS\[draft\.openMode\] \|\| OPEN_MODE_HINTS\.native\)/)
+  // The row hint says the choice is global and that media always uses the Viewer.
+  assert.match(source, /openModeRowHint: '[^']*全局[^']*图片[^']*查看器[^']*'/)
+  assert.match(source, /openModeRowHint: '[^']*text[^']*Viewer[^']*'/)
+  // Both dictionaries carry every label and hint.
+  for (const key of ['openModeNative', 'openModeViewer', 'openModeEditor', 'openModeNativeHint', 'openModeViewerHint', 'openModeEditorHint', 'openModeRowHint']) {
+    const hits = source.match(new RegExp(`${key}:`, 'g')) || []
+    assert.equal(hits.length, 2, `${key} must exist in the zh and en dictionaries`)
+  }
+  assert.match(source, /openModeNative: '原生预览'/)
+  assert.match(source, /openModeNative: 'Native preview'/)
+})
+
+test('the plugin registers nothing into DSH file surfaces', () => {
+  // ADR 0001: additive only. The plugin asks the sidebar to open a file; it
+  // never claims a tab type, a document renderer or a resource type.
+  for (const api of ['sidebarRightTabs', 'documentPreviews', 'resources.register']) {
+    assert.ok(!source.includes(api), `${api} must stay out of the client`)
+  }
+  assert.match(source, /sidebarRight\.openResource\(/)
 })
 
 test('one resolver maps kind, Open mode and key onto a File surface', () => {
@@ -84,6 +120,27 @@ test('one resolver maps kind, Open mode and key onto a File surface', () => {
   assert.match(source, /async function openPrimary\(item\) \{\s*if \(busy\) return\s*await openSurface\(item, true\)/)
   assert.match(source, /async function openSecondary\(item\) \{\s*if \(busy\) return\s*await openSurface\(item, false\)/)
   assert.doesNotMatch(source, /if \(prefsState\.openMode === 'preview'\)/)
+  // No caller branches on the Open mode itself: every choice comes from the
+  // resolver, including the footer hints.
+  assert.doesNotMatch(source, /prefsState\.openMode ===/)
+  assert.doesNotMatch(source, /draft\.openMode ===/)
+  assert.match(source, /resolveSurface\('text', prefsState\.openMode, true\)/)
+  assert.match(source, /resolveSurface\('text', prefsState\.openMode, false\)/)
+})
+
+test('text opens in the Viewer read-only and native falls back to it', () => {
+  // The Viewer is a real surface for text: the same code view, read-only.
+  assert.match(source, /async function loadFile\(item, options\) \{[\s\S]*?readOnly/)
+  assert.match(source, /async function openViewer\(item\) \{[\s\S]*?readOnly: true/)
+  assert.match(source, /async function openEditor\(item\) \{[\s\S]*?readOnly: false/)
+  assert.match(source, /'data-readonly': readOnly \? 'true' : 'false'/)
+  // The textarea is read-only and the Save action is absent in the Viewer.
+  assert.match(source, /readOnly: readOnly/)
+  // A missing native preview shows the existing notice and lands in the Viewer.
+  assert.match(source, /if \(surface === 'native'\) \{\s*if \(openNative\(item\)\) \{[\s\S]*?setNotice\(t\('previewUnavailable'\)\)\s*await openViewer\(item\)/)
+  // The fallback notice says Viewer, not editor, in both languages.
+  assert.match(source, /previewUnavailable: '[^']*查看器[^']*'/)
+  assert.match(source, /previewUnavailable: '[^']*Viewer[^']*'/)
 })
 
 test('every settings change is persisted immediately', () => {
