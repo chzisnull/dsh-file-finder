@@ -14,9 +14,12 @@ test('files open through the native DSH document preview', () => {
   assert.match(source, /dsh-file-finder\/read/)
 })
 
-test('a missing native preview falls back to the built-in editor', () => {
+test('a missing native preview falls back to a plugin surface', () => {
+  // The notice and both plugin surfaces stay available; the resolver's native
+  // branch lands in the Viewer (test below), the editor stays reachable.
   assert.match(source, /previewUnavailable/)
   assert.match(source, /async function openEditor\(item\)/)
+  assert.match(source, /async function openViewer\(item\)/)
 })
 
 test('the palette and settings expose stable automation hooks', () => {
