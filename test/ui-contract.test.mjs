@@ -119,7 +119,7 @@ test('one resolver maps kind, Open mode and key onto a File surface', () => {
   // fall back to the same default.
   assert.match(source, /function surfaceOpenMode\(value\) \{\s*if \(value === 'viewer'\) return 'viewer'\s*if \(value === 'editor'\) return 'editor'\s*return 'native'\s*\}/)
   // Both open handlers consult the resolver instead of branching on the mode.
-  assert.match(source, /async function openSurface\(item, primary\) \{[\s\S]*?resolveSurface\(surfaceKindOf\(item\.path\), prefsState\.openMode, primary\)/)
+  assert.match(source, /async function openSurface\(item, primary\) \{[\s\S]*?const kind = surfaceKindOf\(item\.path\)[\s\S]*?resolveSurface\(kind, prefsState\.openMode, primary\)/)
   assert.match(source, /async function openPrimary\(item\) \{\s*if \(busy\) return\s*await openSurface\(item, true\)/)
   assert.match(source, /async function openSecondary\(item\) \{\s*if \(busy\) return\s*await openSurface\(item, false\)/)
   assert.doesNotMatch(source, /if \(prefsState\.openMode === 'preview'\)/)
@@ -139,11 +139,30 @@ test('text opens in the Viewer read-only and native falls back to it', () => {
   assert.match(source, /'data-readonly': readOnly \? 'true' : 'false'/)
   // The textarea is read-only and the Save action is absent in the Viewer.
   assert.match(source, /readOnly: readOnly/)
-  // A missing native preview shows the existing notice and lands in the Viewer.
-  assert.match(source, /if \(surface === 'native'\) \{\s*if \(openNative\(item\)\) \{[\s\S]*?setNotice\(t\('previewUnavailable'\)\)\s*await openViewer\(item\)/)
+  // A missing native preview shows the existing notice and lands in the Viewer;
+  // unsupported kinds get their dedicated notice from the test below.
+  assert.match(source, /if \(surface === 'native'\) \{\s*if \(openNative\(item\)\) \{[\s\S]*?setNotice\(t\(kind === 'other' \? 'previewUnavailableOther' : 'previewUnavailable'\)\)\s*await openViewer\(item\)/)
   // The fallback notice says Viewer, not editor, in both languages.
   assert.match(source, /previewUnavailable: '[^']*查看器[^']*'/)
   assert.match(source, /previewUnavailable: '[^']*Viewer[^']*'/)
+})
+
+test('media always uses the Viewer and unsupported kinds defer to native', () => {
+  // Kind classes the resolver understands: media renders in the Viewer,
+  // text follows the Open mode, and `other` (Office, archives, binaries the
+  // Viewer cannot decode) always prefers the native preview.
+  assert.match(source, /const KIND_OTHER = \//)
+  assert.match(source, /function surfaceKindOf\(path\) \{/)
+  assert.match(source, /if \(KIND_OTHER\.test\(extOf\(path\)\)\) return 'other'/)
+  assert.match(source, /if \(preview !== 'text'\) return 'media'/)
+  assert.match(source, /return 'text'/)
+  // The native fallback for an unsupported kind has its own notice; the text
+  // fallback keeps the "switched to the Viewer" notice.
+  assert.match(source, /previewUnavailableOther: '[^']*查看器[^']*'/)
+  assert.match(source, /previewUnavailableOther: '[^']*Viewer[^']*'/)
+  const otherNotices = source.match(/previewUnavailableOther/g) || []
+  assert.ok(otherNotices.length >= 3, 'the notice must be defined in both dictionaries and used')
+  assert.match(source, /setNotice\(t\(kind === 'other' \? 'previewUnavailableOther' : 'previewUnavailable'\)\)/)
 })
 
 test('every settings change is persisted immediately', () => {
