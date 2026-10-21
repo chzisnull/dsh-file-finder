@@ -85,6 +85,25 @@
     return Promise.resolve(response({ ok: false, error: 'unexpected ' + path }))
   }
 </script>
+<script>
+  // Seed the plugin's persisted settings before client.js reads localStorage,
+  // the way a DSH user who already chose an Open mode would have them. The
+  // fixture defaults to `editor` so the browse flow below keeps opening files
+  // in the editor while the fake sidebar service is present;
+  // `?openMode=preview` drives the native branch instead.
+  (function () {
+    try {
+      var requested = new URLSearchParams(location.search).get('openMode')
+      localStorage.setItem('dsh-file-finder.settings.v1', JSON.stringify({
+        caseSensitive: false,
+        extraIgnore: '',
+        nameLimit: 40,
+        contentLimit: 80,
+        openMode: requested === 'preview' ? 'preview' : 'editor',
+      }))
+    } catch (error) { /* file:// or private mode */ }
+  })()
+</script>
 </head>
 <body>
 <div id="host"></div>
@@ -143,9 +162,36 @@
       await new Promise(function (resolve) { setTimeout(resolve, 260) })
     }
 
+    // Records what the plugin asks DSH's right sidebar to open, so a check can
+    // tell the native preview apart from the built-in viewer/editor.
+    var sidebarOpens = []
+    var sidebarRight = {
+      openResource: function (address, options) {
+        sidebarOpens.push({ address: address, options: options || null })
+      },
+    }
+    // The live Session is what gives the address its `session/<id>` segment.
+    var sessions = {
+      list: {
+        getSnapshot: function () {
+          return {
+            ids: ['ses_demo'],
+            byId: {
+              ses_demo: { id: 'ses_demo', cwd: '/ws', retainedBy: { mainView: 1 } },
+            },
+          }
+        },
+        subscribe: function () { return function () {} },
+      },
+    }
+
     var ctx = {
       effect: function (fn) { try { fn() } catch (e) {} return function () {} },
-      get: function () { return undefined },
+      get: function (name) {
+        if (name === 'sidebarRight') return sidebarRight
+        if (name === 'sessions') return sessions
+        return undefined
+      },
       inject: function (names, callback) {
         callback({
           effect: ctx.effect,
@@ -158,6 +204,7 @@
         register: function (entry, component) { slots.push({ entry: entry, component: component }); return function () {} },
       },
     }
+    window.__DFF_SIDEBAR_OPENS__ = sidebarOpens
 
     ;(async function run() {
       var moduleExports = window.__DFF_MODULE__
@@ -172,6 +219,45 @@
 
       // ── Root listing ────────────────────────────────────────────────────
       await waitFor(function () { return rows().length }, 5000)
+
+      // ── Preview mode still drives Enter to the native preview ──────────
+      // A short second fixture (`?openMode=preview&scenario=preview-enter`)
+      // proves the legacy stored value still means "native" now that the fake
+      // sidebar service is present.
+      var scenario = new URLSearchParams(location.search).get('scenario')
+      if (scenario === 'preview-enter') {
+        await key('ArrowDown')
+        await key('ArrowDown')
+        await key('ArrowDown')
+        await key('Enter')
+        await waitFor(function () { return sidebarOpens.length === 1 }, 5000)
+        check('Enter in preview mode asks for the native preview',
+          sidebarOpens[0].address === 'dsh-resource://file/session/ses_demo/package.json',
+          sidebarOpens[0] ? sidebarOpens[0].address : 'no request')
+        check('the native request keeps the result line',
+          Boolean(sidebarOpens[0] && sidebarOpens[0].options && sidebarOpens[0].options.params
+            && sidebarOpens[0].options.params.line === 1),
+          sidebarOpens[0] && sidebarOpens[0].options ? JSON.stringify(sidebarOpens[0].options) : 'no options')
+        await waitFor(function () { return !document.querySelector('[data-dff-palette]') }, 5000)
+        check('the native preview takes the file instead of the editor',
+          !document.querySelector('[data-dff-editor]'))
+
+        // The secondary key is the complement: the built-in editor.
+        await new Promise(function (resolve) { setTimeout(resolve, 250) })
+        shortcut.resolve().run()
+        await waitFor(function () { return rowNames().length === 4 }, 5000)
+        await key('ArrowDown')
+        await key('ArrowDown')
+        await key('ArrowDown')
+        await key('Enter', { metaKey: true, ctrlKey: true })
+        var editor = await waitFor(function () { return document.querySelector('[data-dff-editor]') }, 5000)
+        check('Cmd/Ctrl+Enter in preview mode opens the editor', Boolean(editor))
+        check('the editor does not ask the sidebar again', sidebarOpens.length === 1, String(sidebarOpens.length))
+
+        window.__BROWSE_CHECK__ = { passed: results.every(function (item) { return item.ok }), results: results }
+        return
+      }
+
       check('the empty query lists the workspace root', rowNames().join(',') === 'src,docs,README.md,package.json', rowNames().join(','))
       check('folders come first', rows().slice(0, 2).every(function (node) { return node.getAttribute('data-kind') === 'dir' }),
         rows().map(function (node) { return node.getAttribute('data-kind') }).join(','))
@@ -286,6 +372,22 @@
       document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
       await new Promise(function (resolve) { setTimeout(resolve, 400) })
       check('Escape at the root closes the panel', !document.querySelector('[data-dff-palette]'))
+
+      // ── Native preview requests are observable ─────────────────────────
+      // This fixture seeds Open mode `editor`, so Cmd/Ctrl+Enter on a text file
+      // is the native branch. The fake sidebar service records the ask.
+      shortcut.resolve().run()
+      await waitFor(function () { return rowNames().length === 4 }, 5000)
+      await key('ArrowDown')
+      await key('ArrowDown')
+      await key('ArrowDown')
+      await key('Enter', { metaKey: true, ctrlKey: true })
+      await waitFor(function () { return sidebarOpens.length === 1 }, 5000)
+      check('Cmd/Ctrl+Enter in editor mode asks for the native preview',
+        sidebarOpens[0].address === 'dsh-resource://file/session/ses_demo/package.json',
+        sidebarOpens[0] ? sidebarOpens[0].address : 'no request')
+      await waitFor(function () { return !document.querySelector('[data-dff-palette]') }, 5000)
+      check('the native preview closes the palette', !document.querySelector('[data-dff-palette]'))
 
       window.__BROWSE_CHECK__ = { passed: results.every(function (item) { return item.ok }), results: results }
     })().catch(function (error) {

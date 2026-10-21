@@ -1533,6 +1533,37 @@ window.__ModuleLoader__.load({
       return 'text'
     }
 
+    // ── File surface resolver ──────────────────────────────────────────────
+    // One decision table for both keys: the file's kind class, the stored Open
+    // mode, and whether Enter (primary) or Cmd/Ctrl+Enter (secondary) was
+    // pressed. The stored enum still uses the legacy `preview` name; it is the
+    // native branch, and an unknown value falls back to it, so upgrading never
+    // changes behaviour and the two keys can never disagree.
+    function surfaceOpenMode(value) {
+      if (value === 'viewer') return 'viewer'
+      if (value === 'editor') return 'editor'
+      return 'native'
+    }
+
+    function resolveSurface(kind, openMode, primary) {
+      // Media (image, video, audio, PDF, HTML, Markdown) always uses the Viewer.
+      if (kind === 'media') return 'viewer'
+      // Kinds the Viewer cannot render go to the native preview; the caller
+      // falls back to the Viewer's unsupported state when it is unavailable.
+      if (kind === 'other') return 'native'
+      const mode = surfaceOpenMode(openMode)
+      if (mode === 'viewer') return primary ? 'viewer' : 'editor'
+      if (mode === 'editor') return primary ? 'editor' : 'native'
+      return primary ? 'native' : 'editor'
+    }
+
+    // The resolver's kind class. Every non-text kind takes the Viewer path
+    // today, so only `media` is produced here; `other` (Office, archives)
+    // becomes reachable when the kind classifier learns those types.
+    function surfaceKindOf(path) {
+      return previewKindOf(path) === 'text' ? 'text' : 'media'
+    }
+
     function base64Url(value) {
       const bytes = new TextEncoder().encode(String(value))
       let binary = ''
@@ -2528,41 +2559,37 @@ window.__ModuleLoader__.load({
         }
       }
 
-      async function openPrimary(item) {
-        if (busy) return
-        // Media and documents have nothing to edit here, so they always open in
-        // the built-in viewer instead of the sidebar/native split.
-        if (previewKindOf(item.path) !== 'text') {
+      // The resolver decides the surface; this method only carries it out.
+      async function openSurface(item, primary) {
+        const surface = resolveSurface(surfaceKindOf(item.path), prefsState.openMode, primary)
+        if (surface === 'viewer') {
+          // Media and documents have nothing to edit here; openEditor loads the
+          // file and the view renders the built-in viewer for a non-text kind.
           await openEditor(item)
           return
         }
-        if (prefsState.openMode === 'preview') {
+        if (surface === 'native') {
           if (openNative(item)) {
             store.close()
             return
           }
           setNotice(t('previewUnavailable'))
+        } else if (!primary) {
+          // The legacy preview mode's complement is the editor; a stale
+          // "preview unavailable" notice must not survive that switch.
+          setNotice('')
         }
         await openEditor(item)
       }
 
+      async function openPrimary(item) {
+        if (busy) return
+        await openSurface(item, true)
+      }
+
       async function openSecondary(item) {
         if (busy) return
-        if (previewKindOf(item.path) !== 'text') {
-          await openEditor(item)
-          return
-        }
-        if (prefsState.openMode === 'preview') {
-          setNotice('')
-          await openEditor(item)
-          return
-        }
-        if (openNative(item)) {
-          store.close()
-          return
-        }
-        setNotice(t('previewUnavailable'))
-        await openEditor(item)
+        await openSurface(item, false)
       }
 
       function previewCurrent() {

@@ -9,6 +9,11 @@
  * switches to search and clearing returns to the folder, and that opening a file
  * still lands in the editor.
  *
+ * The fixture seeds the plugin's settings before mount and installs a recording
+ * fake `sidebarRight` service, so the check also verifies which key asks for the
+ * native preview: Cmd/Ctrl+Enter under the seeded `editor` mode, and Enter under
+ * `preview` (a second, short fixture).
+ *
  *   node preview/browse-check.mjs
  *
  * Preview-only: not part of the published plugin.
@@ -96,6 +101,23 @@ function loadPlaywright() {
   throw new Error(`cannot resolve Playwright. Tried:\n  ${errors.join('\n  ')}`)
 }
 
+async function runFixture(browser, port, query) {
+  const page = await browser.newPage({ viewport: { width: 1200, height: 820 } })
+  const pageErrors = []
+  page.on('pageerror', (error) => pageErrors.push(String(error && error.message ? error.message : error)))
+  try {
+    await page.goto(`http://127.0.0.1:${port}/preview/browse-check.html${query}`, {
+      waitUntil: 'load',
+      timeout: 30000,
+    })
+    await page.waitForFunction(() => Boolean(window.__BROWSE_CHECK__), undefined, { timeout: 25000 })
+    const result = await page.evaluate(() => window.__BROWSE_CHECK__)
+    return { result, pageErrors }
+  } finally {
+    await page.close()
+  }
+}
+
 async function main() {
   ensureTheme()
   const { chromium } = loadPlaywright()
@@ -109,20 +131,23 @@ async function main() {
     if (!ok) failures.push(name)
   }
   try {
-    const page = await browser.newPage({ viewport: { width: 1200, height: 820 } })
-    const pageErrors = []
-    page.on('pageerror', (error) => pageErrors.push(String(error && error.message ? error.message : error)))
-    await page.goto(`http://127.0.0.1:${port}/preview/browse-check.html`, { waitUntil: 'load', timeout: 30000 })
-    await page.waitForFunction(() => Boolean(window.__BROWSE_CHECK__), undefined, { timeout: 25000 })
-    const result = await page.evaluate(() => window.__BROWSE_CHECK__)
-    if (!result || !Array.isArray(result.results) || result.results.length === 0) {
-      check('fixture produced results', false, result && result.error)
-    } else {
-      for (const item of result.results) check(item.name, item.ok, item.detail)
+    // The main fixture drives browsing (seeded `editor` mode keeps Enter in the
+    // editor); the short second one proves `preview` still means native.
+    const fixtures = [
+      { label: 'editor mode', query: '?openMode=editor' },
+      { label: 'preview mode', query: '?openMode=preview&scenario=preview-enter' },
+    ]
+    for (const fixture of fixtures) {
+      const { result, pageErrors } = await runFixture(browser, port, fixture.query)
+      const prefix = `${fixture.label}: `
+      if (!result || !Array.isArray(result.results) || result.results.length === 0) {
+        check(`${prefix}fixture produced results`, false, result && result.error)
+      } else {
+        for (const item of result.results) check(prefix + item.name, item.ok, item.detail)
+      }
+      if (result && result.error) check(`${prefix}fixture completed`, false, result.error)
+      check(`${prefix}no page errors`, pageErrors.length === 0, pageErrors.join(' | '))
     }
-    if (result && result.error) check('fixture completed', false, result.error)
-    check('no page errors', pageErrors.length === 0, pageErrors.join(' | '))
-    await page.close()
   } finally {
     await browser.close()
     await new Promise((done) => server.close(done))
