@@ -78,6 +78,7 @@ window.__ModuleLoader__.load({
         settingsBody: '和 VS Code 一样：⌘/Ctrl+P 按文件名搜索，⇧⌘F / Ctrl+Shift+F 按内容搜索。也可以在「设置 → 编辑快捷键」里修改。',
         shortcutName: '按文件名搜索',
         shortcutContent: '按内容搜索',
+        shortcutBrowse: '打开文件浏览器',
         tryIt: '试用',
         settingsSearch: '搜索',
         settingsSearchHint: '匹配规则与结果数量。',
@@ -204,6 +205,7 @@ window.__ModuleLoader__.load({
         settingsBody: 'Same as VS Code: Cmd/Ctrl+P searches by file name, and Cmd/Ctrl+Shift+F searches by content. You can still change them in Settings → Edit shortcuts.',
         shortcutName: 'Search files by name',
         shortcutContent: 'Search files by content',
+        shortcutBrowse: 'Open file browser',
         tryIt: 'Try',
         settingsSearch: 'Search',
         settingsSearchHint: 'Match rules and result counts.',
@@ -4730,6 +4732,14 @@ window.__ModuleLoader__.load({
                 () => t('shortcutContent'),
                 ['search file content', 'find in files'],
                 () => store.openSearch('content'),
+              )))
+              // An empty query is the Browser's directory browsing state, so
+              // this command lands there from any surface.
+              scoped.effect(() => register(shortcut(
+                'files.browse',
+                () => t('shortcutBrowse'),
+                ['browse files', 'file browser', '目录浏览'],
+                () => store.openSearch('name'),
               )))
               if (botReady) {
                 scoped.effect(() => register(shortcut(
