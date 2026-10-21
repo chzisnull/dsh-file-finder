@@ -4,7 +4,7 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] 设置存储三种值，默认 native，旧 preview → native、未知值 → native，重置 → native
 - [ ] 设置页出现三选一控件与各自的一行说明，行说明写明「全局生效、媒体始终走 Viewer」

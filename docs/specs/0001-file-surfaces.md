@@ -77,7 +77,7 @@ A single resolver chooses the File surface for both Enter and ⌘/Ctrl+Enter, so
 **DSH boundary**
 
 - The plugin registers nothing into DSH's file surfaces: no `sidebarRightTabs` tab type, no `documentPreviews` renderer, no `resources` type, no shadowing of the Files tree. It only calls the documented `sidebarRight.openResource`.
-- No new host routes and no host changes are needed: the whole feature lives in the client (settings, resolver, copy) plus docs and tests.
+- No new host routes. The feature lives in the client (settings, resolver, copy) plus docs and tests; the only host change is additive — the existing read-error response now also carries its error `code`, so the client can tell a too-large/not-text read from other failures instead of matching localized copy.
 - Because the plugin changes nothing in DSH, switching the setting off — or uninstalling — restores DSH behaviour with no cleanup.
 
 **Commands and entry**

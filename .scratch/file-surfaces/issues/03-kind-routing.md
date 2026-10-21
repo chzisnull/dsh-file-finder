@@ -4,7 +4,7 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] 媒体类型在三种模式下都由 Viewer 打开，⌘↵ 不改变这一点
 - [ ] Viewer 不能渲染的类型在原生可用时交给原生预览

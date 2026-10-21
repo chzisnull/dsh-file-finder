@@ -4,7 +4,7 @@
 
 **Blocked by:** None（可立即开始）
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] 打开路径只经由一个 resolver 决定 File surface，现有两种模式的行为逐项不变
 - [ ] resolver 对未来三种 Open mode 有明确分支，未知值按默认处理

@@ -4,7 +4,7 @@
 
 **Blocked by:** 02、03、04
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] 三档 Open mode 与新媒体/降级行为写进中英 README
 - [ ] 设置页截图反映三选一控件

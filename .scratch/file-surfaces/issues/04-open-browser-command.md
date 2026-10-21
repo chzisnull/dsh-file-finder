@@ -4,7 +4,7 @@
 
 **Blocked by:** None（可立即开始，与 02 并行）
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] 新命令出现在 DSH 快捷键设置中，标签与 aliases 中英双语
 - [ ] 命令执行后 Browser 打开在空查询的目录浏览态
