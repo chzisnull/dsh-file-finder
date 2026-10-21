@@ -15,6 +15,12 @@
  * viewer / editor × Enter and Cmd/Ctrl+Enter — plus the legacy `preview` value
  * and the fallback when the host has no right sidebar.
  *
+ * A second matrix pins kind routing: images, video, audio, PDF, HTML and
+ * Markdown open in the Viewer for both keys under every Open mode; Office,
+ * archive and binary kinds go to the native preview when it exists, and fall
+ * back to the Viewer's unsupported state with their own notice when it does
+ * not.
+ *
  *   node preview/browse-check.mjs
  *
  * Preview-only: not part of the published plugin.
@@ -134,13 +140,19 @@ async function main() {
   try {
     // The main fixture drives browsing (seeded `editor` mode keeps Enter in the
     // writable editor). The short fixtures pin the Open-mode table: text × the
-    // three modes × Enter and Cmd/Ctrl+Enter, the legacy `preview` value, and
-    // the fallback when DSH has no right sidebar.
+    // three modes × Enter and Cmd/Ctrl+Enter, the legacy `preview` value, the
+    // fallback when DSH has no right sidebar, and the media/unsupported-kind
+    // routing matrices.
     const fixtures = [
       { label: 'editor mode', query: '?openMode=editor' },
       { label: 'open matrix · native', query: '?openMode=native&scenario=open-matrix' },
       { label: 'open matrix · viewer', query: '?openMode=viewer&scenario=open-matrix' },
       { label: 'open matrix · editor', query: '?openMode=editor&scenario=open-matrix' },
+      { label: 'media matrix · native', query: '?openMode=native&scenario=media-matrix' },
+      { label: 'media matrix · viewer', query: '?openMode=viewer&scenario=media-matrix' },
+      { label: 'media matrix · editor', query: '?openMode=editor&scenario=media-matrix' },
+      { label: 'unsupported kinds · native available', query: '?openMode=viewer&scenario=other-native' },
+      { label: 'unsupported kinds · native unavailable', query: '?openMode=viewer&sidebar=off&scenario=other-unavailable' },
       { label: 'legacy preview value', query: '?openMode=preview&scenario=legacy-preview-enter' },
       { label: 'native unavailable', query: '?openMode=native&sidebar=off&scenario=native-unavailable' },
       { label: 'native unavailable from editor mode', query: '?openMode=editor&sidebar=off&scenario=native-unavailable' },

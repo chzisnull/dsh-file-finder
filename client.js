@@ -65,6 +65,7 @@ window.__ModuleLoader__.load({
         preview: '预览',
         edit: '编辑',
         previewUnavailable: '侧栏预览不可用，已改用查看器打开。',
+        previewUnavailableOther: '原生预览不可用，这个类型也无法在查看器中预览。',
         previewUnavailableAction: '侧栏预览不可用。',
         saveBeforePreview: '有未保存的修改。保存或重新加载后，再在侧栏预览。',
         openInSidebar: '在侧栏预览',
@@ -195,6 +196,7 @@ window.__ModuleLoader__.load({
         preview: 'Preview',
         edit: 'Edit',
         previewUnavailable: 'The sidebar preview is unavailable, so the Viewer opened instead.',
+        previewUnavailableOther: 'The native preview is unavailable, and the Viewer cannot show this file type.',
         previewUnavailableAction: 'The sidebar preview is unavailable.',
         saveBeforePreview: 'There are unsaved changes. Save or reload before previewing in the sidebar.',
         openInSidebar: 'Preview in sidebar',
@@ -1533,6 +1535,11 @@ window.__ModuleLoader__.load({
     const KIND_MARKDOWN = /^(md|markdown|mdown|mdx)$/
     const KIND_HTML = /^(html|htm)$/
     const KIND_PDF = /^(pdf)$/
+    // Container and binary formats the Viewer cannot render: Office documents,
+    // archives, executables, fonts and data files. Unknown source extensions
+    // stay text so a new code language still opens; this list is only for
+    // formats whose bytes are opaque to the Viewer.
+    const KIND_OTHER = /^(?:docx?|docm|dotx?|xlsx?|xlsm|xlsb|xltx?|pptx?|pptm|ppsx?|ppsm|potx?|odt|ods|odp|odg|ott|ots|otp|pages|numbers|key|vsdx?|vsdm|pub|one|msg|mpp|zip|tar|gz|tgz|bz2|tbz2?|xz|txz|7z|rar|jar|war|ear|whl|apk|ipa|dmg|iso|pkg|deb|rpm|msi|cab|zst|lz4|exe|dll|so|dylib|bin|dat|class|o|obj|a|lib|wasm|pyc|pyo|woff2?|ttf|otf|eot|tiff?|heic|heif|psd|ai|sketch|fig|parquet|avro|orc|npy|npz|pkl|h5|hdf5|pt|pth|onnx|safetensors|gguf|ckpt|sqlite3?|db|mdb)$/
 
     function previewKindOf(name) {
       const extension = extOf(name)
@@ -1568,11 +1575,14 @@ window.__ModuleLoader__.load({
       return primary ? 'native' : 'editor'
     }
 
-    // The resolver's kind class. Every non-text kind takes the Viewer path
-    // today, so only `media` is produced here; `other` (Office, archives)
-    // becomes reachable when the kind classifier learns those types.
+    // The resolver's kind class: media uses the Viewer, text follows the Open
+    // mode, and `other` is everything the Viewer cannot render (Office,
+    // archives, undecodable binaries) so it can prefer the native preview.
     function surfaceKindOf(path) {
-      return previewKindOf(path) === 'text' ? 'text' : 'media'
+      const preview = previewKindOf(path)
+      if (preview !== 'text') return 'media'
+      if (KIND_OTHER.test(extOf(path))) return 'other'
+      return 'text'
     }
 
     // Footer wording for a resolved surface: both read-only surfaces read as
@@ -2606,15 +2616,17 @@ window.__ModuleLoader__.load({
       // The resolver decides the surface; this method only carries it out.
       async function openSurface(item, primary) {
         setNotice('')
-        const surface = resolveSurface(surfaceKindOf(item.path), prefsState.openMode, primary)
+        const kind = surfaceKindOf(item.path)
+        const surface = resolveSurface(kind, prefsState.openMode, primary)
         if (surface === 'native') {
           if (openNative(item)) {
             store.close()
             return
           }
           // DSH has no right sidebar or no live Session: read the file in the
-          // Viewer instead of dead-ending, and say why.
-          setNotice(t('previewUnavailable'))
+          // Viewer instead of dead-ending, and say why. An unsupported kind
+          // gets its own wording because the Viewer has no rendering for it.
+          setNotice(t(kind === 'other' ? 'previewUnavailableOther' : 'previewUnavailable'))
           await openViewer(item)
           return
         }
