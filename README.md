@@ -9,8 +9,8 @@ A DeepSeek Harness plugin for finding workspace files without leaving DSH: searc
 - **Browse when there is nothing to search**: with an empty query the palette lists the current workspace directory — folders first, then files — and you can walk into a folder (Enter or →), go back up (Backspace) or jump with the breadcrumb. Typing switches to the normal search, and clearing the query returns to the folder you were browsing. **Escape** walks back one screen at a time: from a viewer or the editor to the folder you opened it from, then up through the folders, and only then closes the panel.
 - **Search by file name**, including a path fragment such as `src/view`.
 - **Search by content**, with one result row per matching line.
-- **Open natively**: Enter opens the file in DSH's right-sidebar document preview, the same surface the Files tab uses, and jumps to the matching line for content hits.
-- **Edit in place** when you need to: ⌘/Ctrl+Enter opens the built-in editor, which saves through DSH's workspace filesystem and refuses to overwrite a file that changed after it was loaded.
+- **Choose where files open**: one global **Open mode** picks which File surface Enter uses for text — **Native preview** (DSH's right-sidebar document preview, the default), the plugin's own **Viewer** (read-only, with syntax colours and in-file find) or the **Editor** (saves through DSH's workspace filesystem and refuses to overwrite a file that changed after it was loaded). Cmd/Ctrl+Enter always opens the other side of view/edit.
+- **Media always uses the Viewer**: images, video, audio, PDFs, HTML and Markdown open in the plugin's Viewer whatever the Open mode is; kinds the Viewer cannot render (Office documents, archives, binaries) go to DSH's native preview instead, with a notice when it is unavailable.
 - **Native shortcuts**: Cmd/Ctrl+P and Cmd/Ctrl+Shift+F, like VS Code, without claiming a default binding in DSH's shortcut registry.
 - **Optional DS Bot bridge**: when the DS Bot plugin is installed, Cmd/Ctrl+Shift+B flips between Bot mode and classic Agent mode; without it neither the shortcut nor its settings card exists.
 - **Preview, not just text**: images, video, audio, PDFs, HTML pages and Markdown open in the built-in viewer; HTML runs in a sandbox, Markdown is rendered with DSH's own renderer, and relative images inside a Markdown file resolve to the workspace.
@@ -25,10 +25,13 @@ There is no second filesystem hidden in this plugin:
 | --- | --- |
 | Walking, reading, writing workspace files | DSH's `ctx.fs` seam (`index.js`) |
 | Search and ranking | This plugin (DSH exposes no reusable search service) |
-| Opening and viewing a file | DSH's right-sidebar document preview, via `ctx.sidebarRight.openResource()` and a `dsh-resource://file/session/<sessionId>/<path>` address |
+| Opening in the Native preview | DSH's right-sidebar document preview, via `ctx.sidebarRight.openResource()` and a `dsh-resource://file/session/<sessionId>/<path>` address |
+| Opening in the Viewer | This plugin's read-only surface, rendered inside its own overlay |
 | Editing and conflict checks | This plugin's editor, over the same `ctx.fs` seam |
 
-When the native preview is unavailable (no live Session, or a shell without the right sidebar), the finder falls back to its own editor and says so. The **Settings → File Finder** page lets you make the editor the default action instead.
+The plugin is deliberately **additive**: it registers nothing into DSH's own file surfaces (no document renderer, no right-sidebar tab type, no shadowing of the Files tree), so DSH updates keep applying and uninstalling the plugin leaves DSH exactly as it was. This is recorded in [ADR 0001](docs/adr/0001-file-surfaces-stay-additive.md).
+
+When the native preview is unavailable (no live Session, or a shell without the right sidebar), the plugin falls back to the Viewer and says so.
 
 ## Shortcuts
 
@@ -56,11 +59,11 @@ Without DS Bot nothing is registered or shown: the command never reaches **Setti
 
 **Settings → File Finder** covers:
 
-- Shortcut reference with one-click try buttons
+- Shortcut reference with one-click try buttons, including **Open file browser** (no default binding)
 - Case sensitivity
 - Extra ignored directory names (with live chips)
 - Name and content result limits (steppers)
-- The default Enter action: **Sidebar preview** or **Built-in editor**
+- The global Open mode: **Native preview**, **Viewer** or **Editor** (media always opens in the Viewer)
 - Reset to defaults; changes save automatically
 
 ## Editing
