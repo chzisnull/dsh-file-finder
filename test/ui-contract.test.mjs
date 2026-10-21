@@ -65,6 +65,27 @@ test('the default opening mode is the native preview', () => {
   assert.match(source, /source\.openMode === 'editor' \? 'editor' : 'preview'/)
 })
 
+test('one resolver maps kind, Open mode and key onto a File surface', () => {
+  // The surface decision lives in one place: file kind class × stored Open
+  // mode × primary/secondary key. Enter and Cmd/Ctrl+Enter can never disagree.
+  assert.match(source, /function resolveSurface\(kind, openMode, primary\) \{/)
+  // Media ignores the Open mode; kinds the Viewer cannot render prefer native.
+  assert.match(source, /if \(kind === 'media'\) return 'viewer'/)
+  assert.match(source, /if \(kind === 'other'\) return 'native'/)
+  // Text follows the Open mode, and the secondary key is its complement.
+  assert.match(source, /if \(mode === 'viewer'\) return primary \? 'viewer' : 'editor'/)
+  assert.match(source, /if \(mode === 'editor'\) return primary \? 'editor' : 'native'/)
+  assert.match(source, /return primary \? 'native' : 'editor'/)
+  // The stored legacy `preview` value is the native branch; unknown values
+  // fall back to the same default.
+  assert.match(source, /function surfaceOpenMode\(value\) \{\s*if \(value === 'viewer'\) return 'viewer'\s*if \(value === 'editor'\) return 'editor'\s*return 'native'\s*\}/)
+  // Both open handlers consult the resolver instead of branching on the mode.
+  assert.match(source, /async function openSurface\(item, primary\) \{[\s\S]*?resolveSurface\(surfaceKindOf\(item\.path\), prefsState\.openMode, primary\)/)
+  assert.match(source, /async function openPrimary\(item\) \{\s*if \(busy\) return\s*await openSurface\(item, true\)/)
+  assert.match(source, /async function openSecondary\(item\) \{\s*if \(busy\) return\s*await openSurface\(item, false\)/)
+  assert.doesNotMatch(source, /if \(prefsState\.openMode === 'preview'\)/)
+})
+
 test('every settings change is persisted immediately', () => {
   assert.match(source, /prefs\.save\(next\)/)
   assert.match(source, /localStorage\.setItem\(SETTINGS_KEY/)
