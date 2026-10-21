@@ -52,6 +52,13 @@
     { name: 'report.docx', kind: 'binary', bytes: 2048 },
     { name: 'bundle.zip', kind: 'binary', bytes: 1024 },
     { name: 'data.bin', kind: 'binary', bytes: 32 },
+    // A text-classified extension whose bytes the host cannot decode: the read
+    // succeeds with `kind: 'binary'`, so the client has to hand the file to the
+    // native preview instead of leaving the Viewer in its unsupported state.
+    { name: 'book.epub', kind: 'binary', bytes: 512 },
+    // Text-classified files the host refuses to read: too large, or not text.
+    { name: 'huge.txt', error: '文件过大，不能在这里编辑', code: 'too-large' },
+    { name: 'locked.txt', error: '这不是可编辑的文本文件', code: 'not-text' },
   ]
   var FIXTURES = {}
   EXTRA_FILES.forEach(function (file) {
@@ -62,6 +69,10 @@
   function response(body) {
     return { ok: true, status: 200, json: function () { return Promise.resolve(body) } }
   }
+  // Every read the client attempts, so a check can prove a kind that is
+  // already known to be unsupported never takes the text path.
+  var READS = []
+  window.__DFF_READS__ = READS
   window.fetch = function (input, init) {
     var url = typeof input === 'string' ? input : (input && input.url) || ''
     var path = url
@@ -99,7 +110,11 @@
       return Promise.resolve(response({ ok: true, mode: 'name', root: '/ws', truncated: false, results: results }))
     }
     if (path === '/dsh-file-finder/read') {
+      READS.push(String(body.path))
       var entry = FIXTURES[body.path]
+      if (entry && entry.error) {
+        return Promise.resolve(response({ ok: false, error: entry.error, code: entry.code }))
+      }
       if (entry) {
         return Promise.resolve(response({
           ok: true, path: body.path, version: '1', bytes: entry.bytes,
@@ -116,26 +131,17 @@
     return Promise.resolve(response({ ok: false, error: 'unexpected ' + path }))
   }
 </script>
+<script src="./seed-settings.js"></script>
 <script>
-  // Seed the plugin's persisted settings before client.js reads localStorage,
-  // the way a DSH user who already chose an Open mode would have them. The
-  // fixture defaults to `editor` so the browse flow below keeps opening files
-  // in the writable editor; `?openMode=` drives the native, viewer or legacy
-  // `preview` value instead (the legacy one must still mean native).
+  // The fixture defaults to `editor` so the browse flow below keeps opening
+  // files in the writable editor; `?openMode=` drives the native, viewer or
+  // legacy `preview` value instead (the legacy one must still mean native).
   (function () {
-    try {
-      var requested = new URLSearchParams(location.search).get('openMode')
-      var seeded = requested === 'native' || requested === 'viewer' || requested === 'editor' || requested === 'preview'
-        ? requested
-        : 'editor'
-      localStorage.setItem('dsh-file-finder.settings.v1', JSON.stringify({
-        caseSensitive: false,
-        extraIgnore: '',
-        nameLimit: 40,
-        contentLimit: 80,
-        openMode: seeded,
-      }))
-    } catch (error) { /* file:// or private mode */ }
+    var requested = new URLSearchParams(location.search).get('openMode')
+    var seeded = requested === 'native' || requested === 'viewer' || requested === 'editor' || requested === 'preview'
+      ? requested
+      : 'editor'
+    window.seedFileFinderSettings({ openMode: seeded })
   })()
 </script>
 </head>
@@ -280,6 +286,17 @@
         return area ? area.value : ''
       }
       function hasSave() { return Boolean(document.querySelector('.dff-save')) }
+      // The three read-only checks the matrices share: the Viewer surface is on
+      // screen, it says read-only, and the Editor's Save action is absent.
+      function checkReadOnlyViewer(label) {
+        var ok = surfaceName() === 'viewer' && readOnlySurface() && !hasSave()
+        check(label, ok, 'surface=' + surfaceName() + ' readonly=' + readOnlySurface() + ' save=' + hasSave())
+      }
+      function toast() { return document.querySelector('[data-dff-toast]') }
+      function toastText() { return text(toast()) }
+      function finish() {
+        window.__BROWSE_CHECK__ = { passed: results.every(function (item) { return item.ok }), results: results }
+      }
 
       // Escape walks back one screen at a time (surface → search → closed), so
       // closing from any surface may need more than one key.
@@ -372,9 +389,7 @@
           }
           if (expected === 'viewer') {
             await waitFor(function () { return surfaceName() === 'viewer' }, 5000)
-            check(label + ' opens the read-only Viewer',
-              surfaceName() === 'viewer' && readOnlySurface() && !hasSave(),
-              'surface=' + surfaceName() + ' readonly=' + readOnlySurface() + ' save=' + hasSave())
+            checkReadOnlyViewer(label + ' opens the read-only Viewer')
             check(label + ' does not ask the sidebar in Viewer mode', sidebarOpens.length === before,
               String(sidebarOpens.length - before))
             return
@@ -390,7 +405,7 @@
         await openOnce(false, EXPECT.primary)
         await openOnce(true, EXPECT.secondary)
 
-        window.__BROWSE_CHECK__ = { passed: results.every(function (item) { return item.ok }), results: results }
+        finish()
         return
       }
 
@@ -417,9 +432,7 @@
             var mediaBefore = sidebarOpens.length
             await openByName(media.name, mediaSecondary)
             await waitFor(function () { return surfaceName() === 'viewer' }, 5000)
-            check(mediaLabel + ' opens the Viewer',
-              surfaceName() === 'viewer' && readOnlySurface() && !hasSave(),
-              'surface=' + surfaceName() + ' readonly=' + readOnlySurface() + ' save=' + hasSave())
+            checkReadOnlyViewer(mediaLabel + ' opens the Viewer')
             check(mediaLabel + ' renders the ' + media.kind + ' body',
               Boolean(document.querySelector('[data-dff-viewer="' + media.kind + '"]')),
               'body=' + String(document.querySelector('[data-dff-viewer]')
@@ -431,7 +444,7 @@
           }
         }
 
-        window.__BROWSE_CHECK__ = { passed: results.every(function (item) { return item.ok }), results: results }
+        finish()
         return
       }
 
@@ -455,10 +468,63 @@
               sidebarOpens[otherBefore] ? sidebarOpens[otherBefore].address : 'no request')
             check(otherLabel + ' does not open a plugin surface',
               !panel() && !document.querySelector('[data-dff-editor]'))
+            var otherToast = await waitFor(function () { return toast() }, 2000)
+            check(otherLabel + ' says the type opens in the native preview',
+              toastText().indexOf('previewNativeOther') !== -1, toastText())
+            check(otherLabel + ' does not reuse the unavailable notice',
+              toastText().indexOf('previewUnavailable') === -1, toastText())
           }
         }
 
-        window.__BROWSE_CHECK__ = { passed: results.every(function (item) { return item.ok }), results: results }
+        finish()
+        return
+      }
+
+      // ── A read that turns out not to render: hand over to native ───────
+      // `book.epub` has an extension the client classifies as text, but the
+      // host read reports `kind: 'binary'`; `huge.txt` makes the read fail as
+      // too large. Both must end in the native preview (every Open mode) with
+      // the "opens in the native preview" notice, not the Viewer's dead end.
+      if (scenario === 'fallback-native') {
+        var fallbackFile = params.get('file') || 'book.epub'
+        var fallbackBefore = sidebarOpens.length
+        await openByName(fallbackFile, false)
+        await waitFor(function () { return sidebarOpens.length === fallbackBefore + 1 }, 5000)
+        check(fallbackFile + ' opens in the native preview after the read',
+          sidebarOpens[fallbackBefore].address
+            === 'dsh-resource://file/session/ses_demo/' + fallbackFile,
+          sidebarOpens[fallbackBefore] ? sidebarOpens[fallbackBefore].address : 'no request')
+        await waitFor(function () { return !panel() }, 5000)
+        var fallbackToast = await waitFor(function () { return toast() }, 2000)
+        check(fallbackFile + ' says the type opens in the native preview',
+          toastText().indexOf('previewNativeOther') !== -1, toastText())
+        check(fallbackFile + ' does not reuse the unavailable notice',
+          toastText().indexOf('previewUnavailable') === -1, toastText())
+        finish()
+        return
+      }
+
+      // ── A read that turns out not to render, with no native preview ────
+      // With no sidebar left, the Viewer's unsupported state and its native-
+      // unavailable notice replace the raw read error.
+      if (scenario === 'fallback-unavailable') {
+        var failedFile = params.get('file') || 'book.epub'
+        await openByName(failedFile, false)
+        await waitFor(function () { return surfaceName() === 'viewer' }, 5000)
+        checkReadOnlyViewer(failedFile + ' falls back to the read-only Viewer')
+        check(failedFile + ' lands in the Viewer unsupported state',
+          Boolean(document.querySelector('.dff-viewer-empty')))
+        check(failedFile + ' explains the unsupported type with the unavailable notice',
+          text(panel()).indexOf('previewUnavailableOther') !== -1
+            && !/previewUnavailable(?!Other)/.test(text(panel())),
+          text(panel()).slice(-160))
+        check(failedFile + ' does not show the raw read error',
+          !document.querySelector('.dff-msg.is-error'), text(document.querySelector('.dff-msg.is-error')))
+        check(failedFile + ' never asks a missing sidebar',
+          sidebarOpens.length === 0, String(sidebarOpens.length))
+        check(failedFile + ' was still read once',
+          window.__DFF_READS__.length === 1, window.__DFF_READS__.join(','))
+        finish()
         return
       }
 
@@ -475,9 +541,7 @@
               + (unavailableSecondary ? 'Cmd/Ctrl+Enter' : 'Enter')
             await openByName(UNAVAILABLE[unavailableIndex], unavailableSecondary)
             await waitFor(function () { return surfaceName() === 'viewer' }, 5000)
-            check(unavailableLabel + ' falls back to the read-only Viewer',
-              surfaceName() === 'viewer' && readOnlySurface() && !hasSave(),
-              'surface=' + surfaceName() + ' readonly=' + readOnlySurface() + ' save=' + hasSave())
+            checkReadOnlyViewer(unavailableLabel + ' falls back to the read-only Viewer')
             check(unavailableLabel + ' lands in the Viewer unsupported state',
               Boolean(document.querySelector('.dff-viewer-empty')))
             check(unavailableLabel + ' explains the unsupported type',
@@ -490,7 +554,9 @@
           }
         }
 
-        window.__BROWSE_CHECK__ = { passed: results.every(function (item) { return item.ok }), results: results }
+        check('known unsupported kinds never attempt a text read',
+          window.__DFF_READS__.length === 0, window.__DFF_READS__.join(','))
+        finish()
         return
       }
 
@@ -521,7 +587,7 @@
           surfaceName() === 'editor' && !readOnlySurface())
         check('the editor does not ask the sidebar again', sidebarOpens.length === 1, String(sidebarOpens.length))
 
-        window.__BROWSE_CHECK__ = { passed: results.every(function (item) { return item.ok }), results: results }
+        finish()
         return
       }
 
@@ -534,9 +600,7 @@
         await selectTextFile()
         await key('Enter', fromEditorMode ? { metaKey: true, ctrlKey: true } : undefined)
         await waitFor(function () { return surfaceName() === 'viewer' }, 5000)
-        check(keyLabel + ' with a missing native preview falls back to the read-only Viewer',
-          surfaceName() === 'viewer' && readOnlySurface() && !hasSave(),
-          'surface=' + surfaceName() + ' readonly=' + readOnlySurface() + ' save=' + hasSave())
+        checkReadOnlyViewer(keyLabel + ' with a missing native preview falls back to the read-only Viewer')
         var area = document.querySelector('[data-dff-editor]')
         check('the fallback still shows the file',
           Boolean(area) && editorValue().indexOf('plain text') !== -1,
@@ -545,7 +609,7 @@
           text(panel()).indexOf('previewUnavailable') !== -1, text(panel()).slice(-120))
         check('the fallback never asks a missing sidebar', sidebarOpens.length === 0, String(sidebarOpens.length))
 
-        window.__BROWSE_CHECK__ = { passed: results.every(function (item) { return item.ok }), results: results }
+        finish()
         return
       }
 
@@ -680,7 +744,7 @@
       await waitFor(function () { return !document.querySelector('[data-dff-palette]') }, 5000)
       check('the native preview closes the palette', !document.querySelector('[data-dff-palette]'))
 
-      window.__BROWSE_CHECK__ = { passed: results.every(function (item) { return item.ok }), results: results }
+      finish()
     })().catch(function (error) {
       window.__BROWSE_CHECK__ = { passed: false, results: results, error: String(error && error.stack ? error.stack : error) }
     })

@@ -24,6 +24,17 @@ window.__ModuleLoader__.load({
       ? primitives.MarkdownText
       : null
 
+    // The glossary's fixed vocabulary. Every surface choice and kind class the
+    // client compares or emits uses these two names, so the settings values,
+    // the resolver and the DOM cannot drift into different spellings.
+    const KIND_CLASS = { TEXT: 'text', MEDIA: 'media', OTHER: 'other' }
+    const SURFACE = { NATIVE: 'native', VIEWER: 'viewer', EDITOR: 'editor' }
+
+    // Host read kinds the Viewer can draw. Anything else (today that is
+    // `binary`) has no Viewer body, so a text-classified extension that comes
+    // back as one of these belongs in the native preview.
+    const RENDERABLE_KINDS = new Set(['text', 'image', 'video', 'audio', 'pdf', 'html', 'markdown'])
+
     const dict = {
       zh: {
         title: '文件查找',
@@ -64,11 +75,12 @@ window.__ModuleLoader__.load({
         lines: '{count} 行',
         preview: '预览',
         edit: '编辑',
-        previewUnavailable: '侧栏预览不可用，已改用查看器打开。',
+        previewUnavailable: '原生预览不可用，已改用查看器打开。',
         previewUnavailableOther: '原生预览不可用，这个类型也无法在查看器中预览。',
-        previewUnavailableAction: '侧栏预览不可用。',
-        saveBeforePreview: '有未保存的修改。保存或重新加载后，再在侧栏预览。',
-        openInSidebar: '在侧栏预览',
+        previewNativeOther: '这种文件类型在原生预览中打开。',
+        previewUnavailableAction: '原生预览不可用。',
+        saveBeforePreview: '有未保存的修改。保存或重新加载后，再在原生预览中打开。',
+        openInSidebar: '在原生预览中打开',
         resultCount: '{count} 个结果',
         hintNavigate: '选择',
         hintClose: '关闭',
@@ -123,7 +135,7 @@ window.__ModuleLoader__.load({
         unpreviewable: '无法预览此类型',
         editText: '编辑源码',
         previewUnsupported: '这种文件暂时不能在面板里预览',
-        previewUnsupportedHint: '可以用右侧栏预览，或先把这个文件导出到别处再用系统程序打开。',
+        previewUnsupportedHint: '可以在原生预览中打开，或先把这个文件导出到别处再用系统程序打开。',
         previewHtmlNote: 'HTML 在沙箱中运行，脚本无法访问 DSH 页面。',
         kindImage: '图片',
         kindVideo: '视频',
@@ -195,11 +207,12 @@ window.__ModuleLoader__.load({
         lines: '{count} lines',
         preview: 'Preview',
         edit: 'Edit',
-        previewUnavailable: 'The sidebar preview is unavailable, so the Viewer opened instead.',
+        previewUnavailable: 'The native preview is unavailable, so the Viewer opened instead.',
         previewUnavailableOther: 'The native preview is unavailable, and the Viewer cannot show this file type.',
-        previewUnavailableAction: 'The sidebar preview is unavailable.',
-        saveBeforePreview: 'There are unsaved changes. Save or reload before previewing in the sidebar.',
-        openInSidebar: 'Preview in sidebar',
+        previewNativeOther: 'This file type opens in the native preview.',
+        previewUnavailableAction: 'The native preview is unavailable.',
+        saveBeforePreview: 'There are unsaved changes. Save or reload before opening it in the native preview.',
+        openInSidebar: 'Open in native preview',
         resultCount: '{count} results',
         hintNavigate: 'select',
         hintClose: 'close',
@@ -230,7 +243,7 @@ window.__ModuleLoader__.load({
         openModeNative: 'Native preview',
         openModeViewer: 'Viewer',
         openModeEditor: 'Editor',
-        openModeNativeHint: 'Enter opens DSH’s right-sidebar preview (read-only, same as the Files tree); Cmd/Ctrl+Enter uses the Editor. A missing native preview falls back to the Viewer.',
+        openModeNativeHint: 'Enter opens DSH’s native preview in the right sidebar (read-only, same as the Files tree); Cmd/Ctrl+Enter uses the Editor. A missing native preview falls back to the Viewer.',
         openModeViewerHint: 'Enter opens the plugin’s read-only Viewer with syntax colours and in-file find; Cmd/Ctrl+Enter uses the Editor.',
         openModeEditorHint: 'Enter opens the Editor; Cmd/Ctrl+Enter uses the native preview.',
         openModeRowHint: 'Applies to every text file; images, video, audio, PDF, HTML and Markdown always use the Viewer.',
@@ -254,7 +267,7 @@ window.__ModuleLoader__.load({
         unpreviewable: 'No preview for this type',
         editText: 'Edit source',
         previewUnsupported: 'This file type cannot be previewed here yet',
-        previewUnsupportedHint: 'Open it in the right-sidebar preview, or export the file and use a system app.',
+        previewUnsupportedHint: 'Open it in the native preview, or export the file and use a system app.',
         previewHtmlNote: 'HTML runs sandboxed; its scripts cannot reach the DSH page.',
         kindImage: 'Image',
         kindVideo: 'Video',
@@ -290,9 +303,13 @@ window.__ModuleLoader__.load({
     }
 
     // One settings hint per Open mode, shown for the selected option.
-    const OPEN_MODE_HINTS = { native: 'openModeNativeHint', viewer: 'openModeViewerHint', editor: 'openModeEditorHint' }
+    const OPEN_MODE_HINTS = {
+      [SURFACE.NATIVE]: 'openModeNativeHint',
+      [SURFACE.VIEWER]: 'openModeViewerHint',
+      [SURFACE.EDITOR]: 'openModeEditorHint',
+    }
 
-    const DEFAULTS = { caseSensitive: false, extraIgnore: '', nameLimit: 40, contentLimit: 80, openMode: 'native' }
+    const DEFAULTS = { caseSensitive: false, extraIgnore: '', nameLimit: 40, contentLimit: 80, openMode: SURFACE.NATIVE }
 
     const store = {
       state: { open: false, mode: 'name', token: 0 },
@@ -507,8 +524,16 @@ window.__ModuleLoader__.load({
         signal,
       })
       const data = await response.json().catch(() => null)
-      if (!response.ok || !data) throw new Error(data && data.error || `HTTP ${response.status}`)
-      if (data.ok === false && !data.conflict) throw new Error(data.error || '请求失败')
+      if (!response.ok || !data) {
+        const error = new Error((data && data.error) || `HTTP ${response.status}`)
+        if (data && typeof data.code === 'string') error.code = data.code
+        throw error
+      }
+      if (data.ok === false && !data.conflict) {
+        const error = new Error(data.error || '请求失败')
+        if (typeof data.code === 'string') error.code = data.code
+        throw error
+      }
       return data
     }
 
@@ -1558,37 +1583,46 @@ window.__ModuleLoader__.load({
     // pressed. The two keys are complements, so they can never disagree.
     // Legacy settings stored `preview`; anything unrecognised means native.
     function surfaceOpenMode(value) {
-      if (value === 'viewer') return 'viewer'
-      if (value === 'editor') return 'editor'
-      return 'native'
+      if (value === SURFACE.VIEWER) return SURFACE.VIEWER
+      if (value === SURFACE.EDITOR) return SURFACE.EDITOR
+      return SURFACE.NATIVE
     }
 
-    function resolveSurface(kind, openMode, primary) {
+    function resolveSurface(kindClass, openMode, primary) {
       // Media (image, video, audio, PDF, HTML, Markdown) always uses the Viewer.
-      if (kind === 'media') return 'viewer'
+      if (kindClass === KIND_CLASS.MEDIA) return SURFACE.VIEWER
       // Kinds the Viewer cannot render go to the native preview; the caller
-      // falls back to the Viewer's unsupported state when it is unavailable.
-      if (kind === 'other') return 'native'
+      // shows the Viewer's unsupported state when it is unavailable.
+      if (kindClass === KIND_CLASS.OTHER) return SURFACE.NATIVE
       const mode = surfaceOpenMode(openMode)
-      if (mode === 'viewer') return primary ? 'viewer' : 'editor'
-      if (mode === 'editor') return primary ? 'editor' : 'native'
-      return primary ? 'native' : 'editor'
+      if (mode === SURFACE.VIEWER) return primary ? SURFACE.VIEWER : SURFACE.EDITOR
+      if (mode === SURFACE.EDITOR) return primary ? SURFACE.EDITOR : SURFACE.NATIVE
+      return primary ? SURFACE.NATIVE : SURFACE.EDITOR
     }
 
     // The resolver's kind class: media uses the Viewer, text follows the Open
     // mode, and `other` is everything the Viewer cannot render (Office,
     // archives, undecodable binaries) so it can prefer the native preview.
-    function surfaceKindOf(path) {
+    function kindClassOf(path) {
       const preview = previewKindOf(path)
-      if (preview !== 'text') return 'media'
-      if (KIND_OTHER.test(extOf(path))) return 'other'
-      return 'text'
+      if (preview !== 'text') return KIND_CLASS.MEDIA
+      if (KIND_OTHER.test(extOf(path))) return KIND_CLASS.OTHER
+      return KIND_CLASS.TEXT
+    }
+
+    // A read that comes back too large or undecodable means the Viewer has no
+    // body for the file, not that the open failed with an error to dump.
+    function isUnsupportedReadError(reason) {
+      const code = reason && reason.code
+      if (code === 'too-large' || code === 'not-text') return true
+      const message = reason instanceof Error ? reason.message : String(reason || '')
+      return /文件过大|不是可编辑的文本文件|too large|not text/i.test(message)
     }
 
     // Footer wording for a resolved surface: both read-only surfaces read as
     // "preview"; only the Editor reads as "edit".
     function surfaceLabel(t, surface) {
-      return surface === 'editor' ? t('edit') : t('preview')
+      return surface === SURFACE.EDITOR ? t('edit') : t('preview')
     }
 
     function base64Url(value) {
@@ -2041,6 +2075,13 @@ window.__ModuleLoader__.load({
       // The Viewer and the Editor share the code view; this flag makes the text
       // read-only, hides Save and reports the read-only state.
       const [readOnly, setReadOnly] = useState(false)
+      // The File surface currently on screen. The open path sets it once; the
+      // render never re-derives it from the file kind or the read-only flag.
+      const [surface, setSurface] = useState(SURFACE.VIEWER)
+      // A short-lived notice that survives closing the palette (the native
+      // preview opens behind the scrim; an inline message would vanish with it).
+      const [toast, setToast] = useState('')
+      const toastTimer = useRef(0)
       const [draft, setDraft] = useState('')
       const [status, setStatus] = useState('')
       const [confirmAction, setConfirmAction] = useState('')
@@ -2087,6 +2128,12 @@ window.__ModuleLoader__.load({
         setConfirmAction('')
         setFile(null)
         setReadOnly(false)
+        setSurface(SURFACE.VIEWER)
+        if (toastTimer.current) {
+          clearTimeout(toastTimer.current)
+          toastTimer.current = 0
+        }
+        setToast('')
         setDraft('')
         setStatus('')
         setFindOpen(false)
@@ -2115,6 +2162,10 @@ window.__ModuleLoader__.load({
         })
         return () => { cancelled = true }
       }, [request.open, request.token, request.mode, ctx])
+
+      useEffect(() => () => {
+        if (toastTimer.current) clearTimeout(toastTimer.current)
+      }, [])
 
       useEffect(() => {
         if (request.open) return undefined
@@ -2534,8 +2585,6 @@ window.__ModuleLoader__.load({
       )
       const rows = browsing ? browseRows : flat
 
-      if (!presence.mounted) return null
-
       function closePanel() {
         if (dirty && view === 'editor') {
           setConfirmAction('close')
@@ -2569,10 +2618,48 @@ window.__ModuleLoader__.load({
         }
       }
 
-      // Loads a file into the overlay. The resolver has already chosen the
-      // surface; `readOnly` says whether its text is writable.
+      // A short confirmation outside the palette: the native preview opens
+      // behind the scrim, so an inline message would close with the overlay.
+      function announceNativePreview() {
+        setToast(t('previewNativeOther'))
+        if (toastTimer.current) clearTimeout(toastTimer.current)
+        toastTimer.current = setTimeout(() => {
+          toastTimer.current = 0
+          setToast('')
+        }, 3200)
+      }
+
+      // No plugin surface can render this file. Show the Viewer's own
+      // unsupported state plus the reason, without pretending a text read
+      // would help.
+      function showUnsupportedFile(item) {
+        setFile({ path: item.path, line: item.line || 1, kind: 'binary', text: '' })
+        setDraft('')
+        setStatus('')
+        setError('')
+        setSurface(SURFACE.VIEWER)
+        setReadOnly(true)
+        setView('editor')
+        setNotice(t('previewUnavailableOther'))
+      }
+
+      // The read says the extension lied: binary bytes, too many bytes, or no
+      // text at all. Prefer the native preview; without one, land in the
+      // unsupported state instead of the raw error.
+      function fallbackUnrenderable(item) {
+        if (openNative(item)) {
+          announceNativePreview()
+          store.close()
+          return
+        }
+        showUnsupportedFile(item)
+      }
+
+      // Loads a file into the overlay. The resolver has already chosen a
+      // plugin surface; `surface` says which one, and therefore whether the
+      // text is writable.
       async function loadFile(item, options) {
-        const readOnlyView = Boolean(options && options.readOnly)
+        const target = options && options.surface === SURFACE.EDITOR ? SURFACE.EDITOR : SURFACE.VIEWER
         setBusy(true)
         setError('')
         setStatus('')
@@ -2587,6 +2674,10 @@ window.__ModuleLoader__.load({
           // The host decides the kind from the extension and decodability; media
           // and PDFs arrive without text and are rendered by the viewer.
           const kind = typeof data.kind === 'string' && data.kind ? data.kind : previewKindOf(item.path)
+          if (!RENDERABLE_KINDS.has(kind)) {
+            fallbackUnrenderable(item)
+            return
+          }
           setFile({
             path: data.path,
             version: data.version,
@@ -2596,9 +2687,17 @@ window.__ModuleLoader__.load({
             kind,
           })
           setDraft(text)
-          setReadOnly(readOnlyView)
+          // Media keeps the Viewer body even when the caller asked for the
+          // Editor (for example a Markdown link); the surface follows what is
+          // actually drawn.
+          setSurface(kind === 'text' ? target : SURFACE.VIEWER)
+          setReadOnly(target === SURFACE.VIEWER)
           setView('editor')
         } catch (reason) {
+          if (isUnsupportedReadError(reason)) {
+            fallbackUnrenderable(item)
+            return
+          }
           setError(reason instanceof Error ? reason.message : String(reason))
         } finally {
           setBusy(false)
@@ -2606,31 +2705,39 @@ window.__ModuleLoader__.load({
       }
 
       async function openEditor(item) {
-        await loadFile(item, { readOnly: false })
+        await loadFile(item, { surface: SURFACE.EDITOR })
       }
 
       async function openViewer(item) {
-        await loadFile(item, { readOnly: true })
+        await loadFile(item, { surface: SURFACE.VIEWER })
       }
 
       // The resolver decides the surface; this method only carries it out.
       async function openSurface(item, primary) {
         setNotice('')
-        const kind = surfaceKindOf(item.path)
-        const surface = resolveSurface(kind, prefsState.openMode, primary)
-        if (surface === 'native') {
+        const kindClass = kindClassOf(item.path)
+        const target = resolveSurface(kindClass, prefsState.openMode, primary)
+        if (target === SURFACE.NATIVE) {
           if (openNative(item)) {
+            // The Viewer cannot render this kind, so say why the plugin's own
+            // surface did not take it. Text files need no explanation.
+            if (kindClass === KIND_CLASS.OTHER) announceNativePreview()
             store.close()
             return
           }
-          // DSH has no right sidebar or no live Session: read the file in the
-          // Viewer instead of dead-ending, and say why. An unsupported kind
-          // gets its own wording because the Viewer has no rendering for it.
-          setNotice(t(kind === 'other' ? 'previewUnavailableOther' : 'previewUnavailable'))
+          // DSH has no right sidebar or no live Session. Kinds already known
+          // to be unsupported must not take the text path: it would only end
+          // in a "too large to edit" error. Show the Viewer's unsupported
+          // state instead. Text still falls back to the read-only Viewer.
+          if (kindClass === KIND_CLASS.OTHER) {
+            showUnsupportedFile(item)
+            return
+          }
+          setNotice(t('previewUnavailable'))
           await openViewer(item)
           return
         }
-        if (surface === 'viewer') {
+        if (target === SURFACE.VIEWER) {
           await openViewer(item)
           return
         }
@@ -2694,7 +2801,7 @@ window.__ModuleLoader__.load({
           return
         }
         // Reload keeps the surface the file is already in.
-        await loadFile({ path: file.path, line: file.line }, { readOnly })
+        await loadFile({ path: file.path, line: file.line }, { surface })
       }
 
       function moveSelection(delta) {
@@ -3270,10 +3377,10 @@ window.__ModuleLoader__.load({
               h('span', { className: 'dff-hint' }, h(Keycaps, { keys: ['↑', '↓'] }), t('hintNavigate')),
               h('span', { className: 'dff-hint' },
                 h(Keycaps, { keys: ['↵'] }),
-                surfaceLabel(t, resolveSurface('text', prefsState.openMode, true))),
+                surfaceLabel(t, resolveSurface(KIND_CLASS.TEXT, prefsState.openMode, true))),
               h('span', { className: 'dff-hint' },
                 h(Keycaps, { keys: mac ? ['⌘', '↵'] : ['Ctrl', '↵'] }),
-                surfaceLabel(t, resolveSurface('text', prefsState.openMode, false))),
+                surfaceLabel(t, resolveSurface(KIND_CLASS.TEXT, prefsState.openMode, false))),
               browsing && browseState.parent && browseState.parent !== (browseState.path || root)
                 ? h('span', { className: 'dff-hint' }, h(Keycaps, { keys: ['⌫'] }), t('browseUp'))
                 : null,
@@ -3287,6 +3394,7 @@ window.__ModuleLoader__.load({
         if (!file || typeof file.text !== 'string' || !file.text) return
         setFile({ ...file, kind: 'text' })
         setDraft(file.text)
+        setSurface(SURFACE.EDITOR)
         setReadOnly(false)
         setFindOpen(false)
         setFindQuery('')
@@ -3432,6 +3540,7 @@ window.__ModuleLoader__.load({
                   setConfirmAction('')
                   setFile(null)
                   setReadOnly(false)
+                  setSurface(SURFACE.VIEWER)
                   setDraft('')
                   setStatus('')
                   setView('search')
@@ -3595,38 +3704,44 @@ window.__ModuleLoader__.load({
             h('span', { className: 'dff-rootpath', title: file ? file.path : '' }, h(FolderIcon, { size: 12 }), h('span', { className: 'dff-rootpath-text' }, h('bdi', null, file ? parentOf(file.path) : '')))))
       }
 
-      // The File surface on screen, for tests and for the panel's own styling.
-      const surface = view !== 'editor'
-        ? 'search'
-        : file && file.kind && file.kind !== 'text'
-          ? 'viewer'
-          : readOnly ? 'viewer' : 'editor'
+      const toastNode = toast
+        ? h('div', {
+          className: 'dff-toast',
+          'data-dff-toast': 'true',
+          role: 'status',
+          'aria-live': 'polite',
+        }, toast)
+        : null
 
-      return h('div', {
-        key: 'overlay-' + String(request.token),
-        className: 'dff-overlay',
-        'data-state': presence.closing ? 'closing' : 'open',
-        onMouseDown: (event) => { if (event.target === event.currentTarget) closePanel() },
-      },
-      h('div', {
-        className: 'dff-scrim',
-        'aria-hidden': 'true',
-        onMouseDown: (event) => { if (event.target === event.currentTarget) closePanel() },
-      }),
-      h('style', null, css),
-      h('section', {
-        ref: panelRef,
-        className: view === 'editor' ? 'dff-panel dff-panel-editor' : 'dff-panel',
-        'data-dff-palette': 'true',
-        'data-view': view,
-        'data-surface': surface,
-        'data-readonly': readOnly ? 'true' : 'false',
-        tabIndex: -1,
-        role: 'dialog',
-        'aria-modal': 'true',
-        'aria-label': t('title'),
-        onKeyDown: onPanelKey,
-      }, view === 'search' ? searchView() : file && file.kind && file.kind !== 'text' ? viewerView() : editorView()))
+      if (!presence.mounted) return toastNode
+
+      return h(React.Fragment, null,
+        h('div', {
+          key: 'overlay-' + String(request.token),
+          className: 'dff-overlay',
+          'data-state': presence.closing ? 'closing' : 'open',
+          onMouseDown: (event) => { if (event.target === event.currentTarget) closePanel() },
+        },
+        h('div', {
+          className: 'dff-scrim',
+          'aria-hidden': 'true',
+          onMouseDown: (event) => { if (event.target === event.currentTarget) closePanel() },
+        }),
+        h('style', null, css),
+        h('section', {
+          ref: panelRef,
+          className: view === 'editor' ? 'dff-panel dff-panel-editor' : 'dff-panel',
+          'data-dff-palette': 'true',
+          'data-view': view,
+          'data-surface': surface,
+          'data-readonly': readOnly ? 'true' : 'false',
+          tabIndex: -1,
+          role: 'dialog',
+          'aria-modal': 'true',
+          'aria-label': t('title'),
+          onKeyDown: onPanelKey,
+        }, view === 'search' ? searchView() : file && file.kind && file.kind !== 'text' ? viewerView() : editorView())),
+        toastNode)
     }
 
     function SettingsPage(props) {
@@ -3758,9 +3873,9 @@ window.__ModuleLoader__.load({
                 value: draft.openMode,
                 label: t('settingsOpen'),
                 options: [
-                  { value: 'native', label: t('openModeNative') },
-                  { value: 'viewer', label: t('openModeViewer') },
-                  { value: 'editor', label: t('openModeEditor') },
+                  { value: SURFACE.NATIVE, label: t('openModeNative') },
+                  { value: SURFACE.VIEWER, label: t('openModeViewer') },
+                  { value: SURFACE.EDITOR, label: t('openModeEditor') },
                 ],
                 onChange: (value) => update({ openMode: value }),
               })))),
@@ -3995,6 +4110,24 @@ window.__ModuleLoader__.load({
       .dff-msg.is-error { color: var(--dsw-alias-state-error-primary); }
       .dff-msg.is-note { color: var(--dsw-alias-state-business-primary); }
       .dff-msg-icon { flex: none; }
+
+      /* A notice that outlives the palette: the native preview opens behind
+         the scrim, so the explanation cannot be an inline message. */
+      .dff-toast {
+        position: fixed; left: 50%; bottom: 30px; z-index: 80;
+        transform: translateX(-50%);
+        max-width: min(460px, calc(100vw - 32px));
+        padding: 9px 16px;
+        border: 1px solid var(--dsw-alias-border-l2);
+        border-radius: 12px;
+        background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 94%, transparent);
+        -webkit-backdrop-filter: blur(18px) saturate(1.2);
+        backdrop-filter: blur(18px) saturate(1.2);
+        color: var(--dsw-alias-label-primary);
+        box-shadow: 0 10px 30px -10px color-mix(in srgb, #0f1115 30%, transparent);
+        font-size: 12px; line-height: 18px; text-align: center;
+        animation: dff-fade 160ms ease-out both;
+      }
 
       /* ── Results ──────────────────────────────────────────────────────── */
       .dff-list {
@@ -4747,7 +4880,7 @@ window.__ModuleLoader__.load({
 
       @media (prefers-reduced-motion: reduce) {
         .dff-scrim, .dff-panel, .dff-view, .dff-result, .dff-card, .dff-menu, .dff-banner,
-        .dff-empty, .dff-msg, .dff-skeleton-row, .dff-spin, .dff-progress-bar, .dff-find,
+        .dff-empty, .dff-msg, .dff-toast, .dff-skeleton-row, .dff-spin, .dff-progress-bar, .dff-find,
         .dff-editor-state[data-state="dirty"] .dff-dot {
           animation: none !important;
         }

@@ -15,11 +15,10 @@ test('files open through the native DSH document preview', () => {
 })
 
 test('a missing native preview falls back to a plugin surface', () => {
-  // The notice and both plugin surfaces stay available; the resolver's native
-  // branch lands in the Viewer (test below), the editor stays reachable.
+  // Both fallback notices are user-visible contract; the browser matrix pins
+  // which surface receives the file.
   assert.match(source, /previewUnavailable/)
-  assert.match(source, /async function openEditor\(item\)/)
-  assert.match(source, /async function openViewer\(item\)/)
+  assert.match(source, /previewUnavailableOther/)
 })
 
 test('the palette and settings expose stable automation hooks', () => {
@@ -65,34 +64,36 @@ test('the search field takes focus as soon as the overlay mounts', () => {
 
 test('the stored Open mode is exactly native, viewer or editor', () => {
   // Native preview stays the default, so upgrading changes nothing.
-  assert.match(source, /const DEFAULTS = \{[^}]*openMode: 'native' \}/)
-  // One normalizer owns the enum: legacy `preview` and anything unknown become
-  // `native`, while `viewer` and `editor` survive.
-  assert.match(source, /openMode: surfaceOpenMode\(source\.openMode\)/)
-  // Nothing compares against the removed `preview` value any more.
+  assert.match(source, /const DEFAULTS = \{[^}]*openMode: SURFACE\.NATIVE/)
+  // One enum owns the three stored values; the legacy `preview` spelling is
+  // gone from the values and from every comparison.
+  const enumBlock = source.match(/const SURFACE = \{([^}]*)\}/)
+  assert.ok(enumBlock, 'SURFACE must declare the stored values')
+  for (const value of ['native', 'viewer', 'editor']) {
+    assert.ok(enumBlock[1].includes(`'${value}'`), `SURFACE must contain ${value}`)
+  }
+  assert.doesNotMatch(enumBlock[1], /'preview'/)
   assert.doesNotMatch(source, /openMode === 'preview'/)
   assert.doesNotMatch(source, /openMode: 'preview'/)
   assert.doesNotMatch(source, /openModePreview/)
 })
 
-test('the settings row offers the three File surfaces with a hint each', () => {
-  // The segmented control keeps one option per File surface, in glossary order.
-  assert.match(source, /value: 'native', label: t\('openModeNative'\)/)
-  assert.match(source, /value: 'viewer', label: t\('openModeViewer'\)/)
-  assert.match(source, /value: 'editor', label: t\('openModeEditor'\)/)
-  // Each option owns a hint; the card header shows the selected one.
-  assert.match(source, /const OPEN_MODE_HINTS = \{ native: 'openModeNativeHint', viewer: 'openModeViewerHint', editor: 'openModeEditorHint' \}/)
-  assert.match(source, /t\(OPEN_MODE_HINTS\[draft\.openMode\] \|\| OPEN_MODE_HINTS\.native\)/)
-  // The row hint says the choice is global and that media always uses the Viewer.
-  assert.match(source, /openModeRowHint: '[^']*全局[^']*图片[^']*查看器[^']*'/)
-  assert.match(source, /openModeRowHint: '[^']*text[^']*Viewer[^']*'/)
-  // Both dictionaries carry every label and hint.
+test('the settings row offers the three File surfaces in both languages', () => {
+  // Every label and hint exists in the zh and en dictionaries.
   for (const key of ['openModeNative', 'openModeViewer', 'openModeEditor', 'openModeNativeHint', 'openModeViewerHint', 'openModeEditorHint', 'openModeRowHint']) {
     const hits = source.match(new RegExp(`${key}:`, 'g')) || []
     assert.equal(hits.length, 2, `${key} must exist in the zh and en dictionaries`)
   }
+  // The labels are the glossary's File surfaces.
   assert.match(source, /openModeNative: '原生预览'/)
   assert.match(source, /openModeNative: 'Native preview'/)
+  assert.match(source, /openModeViewer: '查看器'/)
+  assert.match(source, /openModeViewer: 'Viewer'/)
+  assert.match(source, /openModeEditor: '编辑器'/)
+  assert.match(source, /openModeEditor: 'Editor'/)
+  // The row hint says the choice is global and that media always uses the Viewer.
+  assert.match(source, /openModeRowHint: '[^']*全局[^']*图片[^']*查看器[^']*'/)
+  assert.match(source, /openModeRowHint: '[^']*text[^']*Viewer[^']*'/)
 })
 
 test('the plugin registers nothing into DSH file surfaces', () => {
@@ -104,65 +105,43 @@ test('the plugin registers nothing into DSH file surfaces', () => {
   assert.match(source, /sidebarRight\.openResource\(/)
 })
 
-test('one resolver maps kind, Open mode and key onto a File surface', () => {
-  // The surface decision lives in one place: file kind class × stored Open
-  // mode × primary/secondary key. Enter and Cmd/Ctrl+Enter can never disagree.
-  assert.match(source, /function resolveSurface\(kind, openMode, primary\) \{/)
-  // Media ignores the Open mode; kinds the Viewer cannot render prefer native.
-  assert.match(source, /if \(kind === 'media'\) return 'viewer'/)
-  assert.match(source, /if \(kind === 'other'\) return 'native'/)
-  // Text follows the Open mode, and the secondary key is its complement.
-  assert.match(source, /if \(mode === 'viewer'\) return primary \? 'viewer' : 'editor'/)
-  assert.match(source, /if \(mode === 'editor'\) return primary \? 'editor' : 'native'/)
-  assert.match(source, /return primary \? 'native' : 'editor'/)
-  // The stored legacy `preview` value is the native branch; unknown values
-  // fall back to the same default.
-  assert.match(source, /function surfaceOpenMode\(value\) \{\s*if \(value === 'viewer'\) return 'viewer'\s*if \(value === 'editor'\) return 'editor'\s*return 'native'\s*\}/)
-  // Both open handlers consult the resolver instead of branching on the mode.
-  assert.match(source, /async function openSurface\(item, primary\) \{[\s\S]*?const kind = surfaceKindOf\(item\.path\)[\s\S]*?resolveSurface\(kind, prefsState\.openMode, primary\)/)
-  assert.match(source, /async function openPrimary\(item\) \{\s*if \(busy\) return\s*await openSurface\(item, true\)/)
-  assert.match(source, /async function openSecondary\(item\) \{\s*if \(busy\) return\s*await openSurface\(item, false\)/)
-  assert.doesNotMatch(source, /if \(prefsState\.openMode === 'preview'\)/)
-  // No caller branches on the Open mode itself: every choice comes from the
-  // resolver, including the footer hints.
+test('the Open mode is only interpreted by the surface resolver', () => {
+  // The browser matrices pin the decision table; at source level, no caller
+  // gets to branch on the mode (or on the removed `preview` value) itself.
   assert.doesNotMatch(source, /prefsState\.openMode ===/)
   assert.doesNotMatch(source, /draft\.openMode ===/)
-  assert.match(source, /resolveSurface\('text', prefsState\.openMode, true\)/)
-  assert.match(source, /resolveSurface\('text', prefsState\.openMode, false\)/)
+  assert.doesNotMatch(source, /openMode === 'preview'/)
 })
 
-test('text opens in the Viewer read-only and native falls back to it', () => {
-  // The Viewer is a real surface for text: the same code view, read-only.
-  assert.match(source, /async function loadFile\(item, options\) \{[\s\S]*?readOnly/)
-  assert.match(source, /async function openViewer\(item\) \{[\s\S]*?readOnly: true/)
-  assert.match(source, /async function openEditor\(item\) \{[\s\S]*?readOnly: false/)
-  assert.match(source, /'data-readonly': readOnly \? 'true' : 'false'/)
-  // The textarea is read-only and the Save action is absent in the Viewer.
-  assert.match(source, /readOnly: readOnly/)
-  // A missing native preview shows the existing notice and lands in the Viewer;
-  // unsupported kinds get their dedicated notice from the test below.
-  assert.match(source, /if \(surface === 'native'\) \{\s*if \(openNative\(item\)\) \{[\s\S]*?setNotice\(t\(kind === 'other' \? 'previewUnavailableOther' : 'previewUnavailable'\)\)\s*await openViewer\(item\)/)
-  // The fallback notice says Viewer, not editor, in both languages.
+test('each File surface fallback has its own bilingual notice', () => {
+  // Text that cannot use the native preview lands in the Viewer and says so.
   assert.match(source, /previewUnavailable: '[^']*查看器[^']*'/)
   assert.match(source, /previewUnavailable: '[^']*Viewer[^']*'/)
-})
-
-test('media always uses the Viewer and unsupported kinds defer to native', () => {
-  // Kind classes the resolver understands: media renders in the Viewer,
-  // text follows the Open mode, and `other` (Office, archives, binaries the
-  // Viewer cannot decode) always prefers the native preview.
-  assert.match(source, /const KIND_OTHER = \//)
-  assert.match(source, /function surfaceKindOf\(path\) \{/)
-  assert.match(source, /if \(KIND_OTHER\.test\(extOf\(path\)\)\) return 'other'/)
-  assert.match(source, /if \(preview !== 'text'\) return 'media'/)
-  assert.match(source, /return 'text'/)
-  // The native fallback for an unsupported kind has its own notice; the text
-  // fallback keeps the "switched to the Viewer" notice.
+  // A kind the Viewer cannot render has the native-unavailable notice...
   assert.match(source, /previewUnavailableOther: '[^']*查看器[^']*'/)
   assert.match(source, /previewUnavailableOther: '[^']*Viewer[^']*'/)
-  const otherNotices = source.match(/previewUnavailableOther/g) || []
-  assert.ok(otherNotices.length >= 3, 'the notice must be defined in both dictionaries and used')
-  assert.match(source, /setNotice\(t\(kind === 'other' \? 'previewUnavailableOther' : 'previewUnavailable'\)\)/)
+  // ...and a successful native open of that kind has a different notice that
+  // says the type opens in the native preview.
+  assert.match(source, /previewNativeOther: '[^']*原生预览[^']*'/)
+  assert.match(source, /previewNativeOther: '[^']*native preview[^']*'/)
+  const nativeNotice = (source.match(/previewNativeOther: '([^']*)'/) || [])[1]
+  const unavailableNotice = (source.match(/previewUnavailableOther: '([^']*)'/) || [])[1]
+  assert.ok(nativeNotice && unavailableNotice && nativeNotice !== unavailableNotice,
+    'the success and unavailable notices must not be the same string')
+})
+
+test('notices and hints use the glossary term Native preview', () => {
+  // Both dictionaries carry every native-preview message.
+  for (const key of ['previewUnavailable', 'previewUnavailableOther', 'previewNativeOther', 'previewUnavailableAction', 'saveBeforePreview', 'openInSidebar', 'previewUnsupportedHint', 'openModeNativeHint']) {
+    const hits = source.match(new RegExp(`${key}:`, 'g')) || []
+    assert.equal(hits.length, 2, `${key} must exist in the zh and en dictionaries`)
+  }
+  // The glossary's term, not "sidebar preview"/"侧栏预览".
+  assert.match(source, /previewUnavailable: '[^']*原生预览/)
+  assert.match(source, /previewUnavailable: '[^']*native preview/)
+  assert.doesNotMatch(source, /侧栏预览/)
+  assert.doesNotMatch(source, /sidebar preview/i)
+  assert.doesNotMatch(source, /right-sidebar preview/i)
 })
 
 test('every settings change is persisted immediately', () => {
@@ -287,17 +266,14 @@ test('the Open file browser command browses with no default key', () => {
   const block = source.slice(start, source.indexOf(')))', start))
   // The label resolves through the locale dictionary, so the command reads in
   // both languages.
-  assert.match(block, /\(\) => t\('shortcutBrowse'\)/)
+  assert.ok(block.includes('shortcutBrowse'), 'the label must resolve through the dictionary')
   // The aliases cover English and Chinese so either query finds the command.
   for (const alias of ['browse files', 'file browser', '目录浏览']) {
     assert.ok(block.includes(`'${alias}'`), `files.browse must answer to "${alias}"`)
   }
-  // Running it opens the Browser with an empty query, its directory browsing
-  // state.
-  assert.match(block, /\(\) => store\.openSearch\('name'\)/)
-  // It must not claim a default key, and the shared helper keeps the map empty.
+  // It must not claim a default key; boot-safety checks every registered
+  // command's `defaults` map as well.
   assert.doesNotMatch(block, /defaults/, 'files.browse must not declare a default binding')
-  assert.match(source, /function shortcut\(id, label, aliases, run\) \{\s*return \{\s*id,\s*label,\s*aliases,\s*defaults: \{\},/)
   // Both dictionaries carry the command label.
   assert.match(source, /shortcutBrowse: '打开文件浏览器'/)
   assert.match(source, /shortcutBrowse: 'Open file browser'/)

@@ -19,7 +19,9 @@
  * Markdown open in the Viewer for both keys under every Open mode; Office,
  * archive and binary kinds go to the native preview when it exists, and fall
  * back to the Viewer's unsupported state with their own notice when it does
- * not.
+ * not. Post-read fixtures cover a text extension whose bytes are binary and a
+ * read that fails as too large / not text: native when available, unsupported
+ * state with the unavailable notice otherwise.
  *
  *   node preview/browse-check.mjs
  *
@@ -153,6 +155,16 @@ async function main() {
       { label: 'media matrix · editor', query: '?openMode=editor&scenario=media-matrix' },
       { label: 'unsupported kinds · native available', query: '?openMode=viewer&scenario=other-native' },
       { label: 'unsupported kinds · native unavailable', query: '?openMode=viewer&sidebar=off&scenario=other-unavailable' },
+      { label: 'post-read fallback · viewer', query: '?openMode=viewer&scenario=fallback-native&file=book.epub' },
+      { label: 'post-read fallback · editor', query: '?openMode=editor&scenario=fallback-native&file=book.epub' },
+      { label: 'post-read fallback unavailable · viewer', query: '?openMode=viewer&sidebar=off&scenario=fallback-unavailable&file=book.epub' },
+      { label: 'post-read fallback unavailable · editor', query: '?openMode=editor&sidebar=off&scenario=fallback-unavailable&file=book.epub' },
+      { label: 'read failure fallback · viewer', query: '?openMode=viewer&scenario=fallback-native&file=huge.txt' },
+      { label: 'read failure fallback · editor', query: '?openMode=editor&scenario=fallback-native&file=huge.txt' },
+      { label: 'read failure unavailable · viewer', query: '?openMode=viewer&sidebar=off&scenario=fallback-unavailable&file=huge.txt' },
+      { label: 'read failure unavailable · editor', query: '?openMode=editor&sidebar=off&scenario=fallback-unavailable&file=huge.txt' },
+      { label: 'not-text failure fallback · viewer', query: '?openMode=viewer&scenario=fallback-native&file=locked.txt' },
+      { label: 'not-text failure unavailable · viewer', query: '?openMode=viewer&sidebar=off&scenario=fallback-unavailable&file=locked.txt' },
       { label: 'legacy preview value', query: '?openMode=preview&scenario=legacy-preview-enter' },
       { label: 'native unavailable', query: '?openMode=native&sidebar=off&scenario=native-unavailable' },
       { label: 'native unavailable from editor mode', query: '?openMode=editor&sidebar=off&scenario=native-unavailable' },

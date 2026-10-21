@@ -1,6 +1,6 @@
 # dsh-file-finder
 
-DeepSeek Harness 插件：在 DSH 里按文件名或文件内容查找工作区文件，用 DSH 自带的右侧栏预览打开，需要修改时再切到内置编辑器。
+DeepSeek Harness 插件：在 DSH 里按文件名或文件内容查找工作区文件，用 DSH 自带右侧栏里的原生预览打开，需要修改时再切到内置编辑器。
 
 [English](README.md)
 

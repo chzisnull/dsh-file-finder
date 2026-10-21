@@ -1,6 +1,6 @@
 # dsh-file-finder
 
-A DeepSeek Harness plugin for finding workspace files without leaving DSH: search by file name or by file content, then open the result in DSH's own right-sidebar preview — or in the built-in editor when you need to change something.
+A DeepSeek Harness plugin for finding workspace files without leaving DSH: search by file name or by file content, then open the result in DSH's native preview (in the right sidebar) — or in the built-in editor when you need to change something.
 
 [中文文档](README.zh.md)
 
