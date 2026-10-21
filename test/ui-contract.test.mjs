@@ -180,3 +180,25 @@ test('the panel browses directories and keeps one action table on the host', () 
   assert.match(host, /crumbs,/)
   assert.doesNotMatch(host, /const routes = \['roots'/)
 })
+
+test('the Open file browser command browses with no default key', () => {
+  const start = source.indexOf("'files.browse'")
+  assert.notEqual(start, -1, 'files.browse must be registered')
+  const block = source.slice(start, source.indexOf(')))', start))
+  // The label resolves through the locale dictionary, so the command reads in
+  // both languages.
+  assert.match(block, /\(\) => t\('shortcutBrowse'\)/)
+  // The aliases cover English and Chinese so either query finds the command.
+  for (const alias of ['browse files', 'file browser', '目录浏览']) {
+    assert.ok(block.includes(`'${alias}'`), `files.browse must answer to "${alias}"`)
+  }
+  // Running it opens the Browser with an empty query, its directory browsing
+  // state.
+  assert.match(block, /\(\) => store\.openSearch\('name'\)/)
+  // It must not claim a default key, and the shared helper keeps the map empty.
+  assert.doesNotMatch(block, /defaults/, 'files.browse must not declare a default binding')
+  assert.match(source, /function shortcut\(id, label, aliases, run\) \{\s*return \{\s*id,\s*label,\s*aliases,\s*defaults: \{\},/)
+  // Both dictionaries carry the command label.
+  assert.match(source, /shortcutBrowse: '打开文件浏览器'/)
+  assert.match(source, /shortcutBrowse: 'Open file browser'/)
+})
