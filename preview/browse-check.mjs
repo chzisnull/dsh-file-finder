@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Browser check for the empty-query directory browser.
+ * Browser check for the empty-query directory browser and the Open-mode table.
  *
  * Serves the repository and mounts `preview/browse-check.html`, which opens the
  * palette against a fake workspace tree. It verifies that an empty query lists
@@ -11,8 +11,9 @@
  *
  * The fixture seeds the plugin's settings before mount and installs a recording
  * fake `sidebarRight` service, so the check also verifies which key asks for the
- * native preview: Cmd/Ctrl+Enter under the seeded `editor` mode, and Enter under
- * `preview` (a second, short fixture).
+ * native preview. Short fixtures pin the Open-mode table — text × native /
+ * viewer / editor × Enter and Cmd/Ctrl+Enter — plus the legacy `preview` value
+ * and the fallback when the host has no right sidebar.
  *
  *   node preview/browse-check.mjs
  *
@@ -132,10 +133,17 @@ async function main() {
   }
   try {
     // The main fixture drives browsing (seeded `editor` mode keeps Enter in the
-    // editor); the short second one proves `preview` still means native.
+    // writable editor). The short fixtures pin the Open-mode table: text × the
+    // three modes × Enter and Cmd/Ctrl+Enter, the legacy `preview` value, and
+    // the fallback when DSH has no right sidebar.
     const fixtures = [
       { label: 'editor mode', query: '?openMode=editor' },
-      { label: 'preview mode', query: '?openMode=preview&scenario=preview-enter' },
+      { label: 'open matrix · native', query: '?openMode=native&scenario=open-matrix' },
+      { label: 'open matrix · viewer', query: '?openMode=viewer&scenario=open-matrix' },
+      { label: 'open matrix · editor', query: '?openMode=editor&scenario=open-matrix' },
+      { label: 'legacy preview value', query: '?openMode=preview&scenario=legacy-preview-enter' },
+      { label: 'native unavailable', query: '?openMode=native&sidebar=off&scenario=native-unavailable' },
+      { label: 'native unavailable from editor mode', query: '?openMode=editor&sidebar=off&scenario=native-unavailable' },
     ]
     for (const fixture of fixtures) {
       const { result, pageErrors } = await runFixture(browser, port, fixture.query)

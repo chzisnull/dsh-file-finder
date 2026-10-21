@@ -62,6 +62,17 @@
     }
   })()
 </script>
+<script>
+  // This harness exercises the writable Editor, so seed that Open mode before
+  // client.js reads the settings; the default is the native preview.
+  (function () {
+    try {
+      localStorage.setItem('dsh-file-finder.settings.v1', JSON.stringify({
+        caseSensitive: false, extraIgnore: '', nameLimit: 40, contentLimit: 80, openMode: 'editor',
+      }))
+    } catch (error) { /* file:// or private mode */ }
+  })()
+</script>
 </head>
 <body>
 <div id="host"></div>

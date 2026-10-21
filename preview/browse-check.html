@@ -89,17 +89,20 @@
   // Seed the plugin's persisted settings before client.js reads localStorage,
   // the way a DSH user who already chose an Open mode would have them. The
   // fixture defaults to `editor` so the browse flow below keeps opening files
-  // in the editor while the fake sidebar service is present;
-  // `?openMode=preview` drives the native branch instead.
+  // in the writable editor; `?openMode=` drives the native, viewer or legacy
+  // `preview` value instead (the legacy one must still mean native).
   (function () {
     try {
       var requested = new URLSearchParams(location.search).get('openMode')
+      var seeded = requested === 'native' || requested === 'viewer' || requested === 'editor' || requested === 'preview'
+        ? requested
+        : 'editor'
       localStorage.setItem('dsh-file-finder.settings.v1', JSON.stringify({
         caseSensitive: false,
         extraIgnore: '',
         nameLimit: 40,
         contentLimit: 80,
-        openMode: requested === 'preview' ? 'preview' : 'editor',
+        openMode: seeded,
       }))
     } catch (error) { /* file:// or private mode */ }
   })()
@@ -185,10 +188,14 @@
       },
     }
 
+    // A host without the right sidebar: `?sidebar=off` makes the service absent
+    // so the native branch has to fall back, the way a bare DSH would.
+    var sidebarAvailable = new URLSearchParams(location.search).get('sidebar') !== 'off'
+
     var ctx = {
       effect: function (fn) { try { fn() } catch (e) {} return function () {} },
       get: function (name) {
-        if (name === 'sidebarRight') return sidebarRight
+        if (name === 'sidebarRight') return sidebarAvailable ? sidebarRight : undefined
         if (name === 'sessions') return sessions
         return undefined
       },
@@ -220,39 +227,147 @@
       // ── Root listing ────────────────────────────────────────────────────
       await waitFor(function () { return rows().length }, 5000)
 
-      // ── Preview mode still drives Enter to the native preview ──────────
-      // A short second fixture (`?openMode=preview&scenario=preview-enter`)
-      // proves the legacy stored value still means "native" now that the fake
-      // sidebar service is present.
-      var scenario = new URLSearchParams(location.search).get('scenario')
-      if (scenario === 'preview-enter') {
+      var params = new URLSearchParams(location.search)
+      var scenario = params.get('scenario')
+
+      function panel() { return document.querySelector('[data-dff-palette]') }
+      function surfaceName() {
+        return panel() ? panel().getAttribute('data-surface') : 'closed'
+      }
+      function readOnlyArea() {
+        var area = document.querySelector('[data-dff-editor]')
+        return Boolean(area && area.readOnly)
+      }
+      function hasSave() { return Boolean(document.querySelector('.dff-save')) }
+
+      // Escape walks back one screen at a time (surface → search → closed), so
+      // closing from any surface may need more than one key.
+      async function closePalette() {
+        for (var step = 0; step < 3 && panel(); step += 1) {
+          document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+          await new Promise(function (resolve) { setTimeout(resolve, 250) })
+        }
+        await waitFor(function () { return !panel() }, 5000)
+      }
+
+      // A fresh palette proves selection resets to the first row, so the three
+      // ArrowDowns below always land on package.json.
+      async function freshPalette() {
+        await closePalette()
+        shortcut.resolve().run()
+        await waitFor(function () { return panel() && rowNames().length === 4 }, 5000)
+      }
+
+      async function selectTextFile() {
+        // Root rows sort folders first: src, docs, README.md, package.json.
         await key('ArrowDown')
         await key('ArrowDown')
         await key('ArrowDown')
+      }
+
+      // ── Open-mode matrix: text × mode × Enter/Cmd-Ctrl+Enter ───────────
+      // The expected table comes straight from the spec, independent of the
+      // implementation: Enter follows the stored mode and Cmd/Ctrl+Enter is
+      // always the other side of view/edit.
+      if (scenario === 'open-matrix') {
+        var mode = params.get('openMode')
+        var EXPECT = {
+          native: { primary: 'native', secondary: 'editor' },
+          viewer: { primary: 'viewer', secondary: 'editor' },
+          editor: { primary: 'editor', secondary: 'native' },
+        }[mode]
+        check('the fixture seeded a known Open mode', Boolean(EXPECT), String(mode))
+
+        async function openOnce(secondary, expected) {
+          await freshPalette()
+          await selectTextFile()
+          var before = sidebarOpens.length
+          var label = secondary ? 'Cmd/Ctrl+Enter' : 'Enter'
+          await key('Enter', secondary ? { metaKey: true, ctrlKey: true } : undefined)
+          if (expected === 'native') {
+            await waitFor(function () { return sidebarOpens.length === before + 1 }, 5000)
+            await waitFor(function () { return !panel() }, 5000)
+            check(label + ' asks for the native preview',
+              sidebarOpens[before].address === 'dsh-resource://file/session/ses_demo/package.json',
+              sidebarOpens[before] ? sidebarOpens[before].address : 'no request')
+            check(label + ' hands the file to DSH, not to a plugin surface',
+              !document.querySelector('[data-dff-editor]'))
+            return
+          }
+          if (expected === 'viewer') {
+            await waitFor(function () { return surfaceName() === 'viewer' }, 5000)
+            check(label + ' opens the read-only Viewer',
+              surfaceName() === 'viewer' && readOnlyArea() && !hasSave(),
+              'surface=' + surfaceName() + ' readonly=' + readOnlyArea() + ' save=' + hasSave())
+            check(label + ' does not ask the sidebar in Viewer mode', sidebarOpens.length === before,
+              String(sidebarOpens.length - before))
+            return
+          }
+          await waitFor(function () { return surfaceName() === 'editor' }, 5000)
+          check(label + ' opens the writable Editor',
+            surfaceName() === 'editor' && !readOnlyArea() && hasSave(),
+            'surface=' + surfaceName() + ' readonly=' + readOnlyArea() + ' save=' + hasSave())
+          check(label + ' does not ask the sidebar in Editor mode', sidebarOpens.length === before,
+            String(sidebarOpens.length - before))
+        }
+
+        await openOnce(false, EXPECT.primary)
+        await openOnce(true, EXPECT.secondary)
+
+        window.__BROWSE_CHECK__ = { passed: results.every(function (item) { return item.ok }), results: results }
+        return
+      }
+
+      // ── A stored legacy `preview` value still means the native preview ──
+      // The seed above writes the old value verbatim; the client's migration
+      // has to treat it as `native` for both keys.
+      if (scenario === 'legacy-preview-enter') {
+        await selectTextFile()
         await key('Enter')
         await waitFor(function () { return sidebarOpens.length === 1 }, 5000)
-        check('Enter in preview mode asks for the native preview',
+        check('Enter in the legacy preview value asks for the native preview',
           sidebarOpens[0].address === 'dsh-resource://file/session/ses_demo/package.json',
           sidebarOpens[0] ? sidebarOpens[0].address : 'no request')
         check('the native request keeps the result line',
           Boolean(sidebarOpens[0] && sidebarOpens[0].options && sidebarOpens[0].options.params
             && sidebarOpens[0].options.params.line === 1),
           sidebarOpens[0] && sidebarOpens[0].options ? JSON.stringify(sidebarOpens[0].options) : 'no options')
-        await waitFor(function () { return !document.querySelector('[data-dff-palette]') }, 5000)
+        await waitFor(function () { return !panel() }, 5000)
         check('the native preview takes the file instead of the editor',
           !document.querySelector('[data-dff-editor]'))
 
-        // The secondary key is the complement: the built-in editor.
-        await new Promise(function (resolve) { setTimeout(resolve, 250) })
-        shortcut.resolve().run()
-        await waitFor(function () { return rowNames().length === 4 }, 5000)
-        await key('ArrowDown')
-        await key('ArrowDown')
-        await key('ArrowDown')
+        // The secondary key is the complement: the writable editor.
+        await freshPalette()
+        await selectTextFile()
         await key('Enter', { metaKey: true, ctrlKey: true })
-        var editor = await waitFor(function () { return document.querySelector('[data-dff-editor]') }, 5000)
-        check('Cmd/Ctrl+Enter in preview mode opens the editor', Boolean(editor))
+        await waitFor(function () { return surfaceName() === 'editor' }, 5000)
+        check('Cmd/Ctrl+Enter in the legacy preview value opens the editor',
+          surfaceName() === 'editor' && !readOnlyArea())
         check('the editor does not ask the sidebar again', sidebarOpens.length === 1, String(sidebarOpens.length))
+
+        window.__BROWSE_CHECK__ = { passed: results.every(function (item) { return item.ok }), results: results }
+        return
+      }
+
+      // ── Native unavailable: Viewer + notice, never a dead end ──────────
+      // Both native rows of the table use this path: Enter in Native mode and
+      // Cmd/Ctrl+Enter in Editor mode.
+      if (scenario === 'native-unavailable') {
+        var fromEditorMode = params.get('openMode') === 'editor'
+        var keyLabel = fromEditorMode ? 'Cmd/Ctrl+Enter' : 'Enter'
+        await selectTextFile()
+        await key('Enter', fromEditorMode ? { metaKey: true, ctrlKey: true } : undefined)
+        await waitFor(function () { return surfaceName() === 'viewer' }, 5000)
+        check(keyLabel + ' with a missing native preview falls back to the read-only Viewer',
+          surfaceName() === 'viewer' && readOnlyArea() && !hasSave(),
+          'surface=' + surfaceName() + ' readonly=' + readOnlyArea() + ' save=' + hasSave())
+        var area = document.querySelector('[data-dff-editor]')
+        check('the fallback still shows the file',
+          Boolean(area) && area.value.indexOf('plain text') !== -1,
+          area ? area.value.slice(0, 20) : 'no textarea')
+        check('the fallback shows the unavailable notice',
+          text(panel()).indexOf('previewUnavailable') !== -1, text(panel()).slice(-120))
+        check('the fallback never asks a missing sidebar', sidebarOpens.length === 0, String(sidebarOpens.length))
 
         window.__BROWSE_CHECK__ = { passed: results.every(function (item) { return item.ok }), results: results }
         return
