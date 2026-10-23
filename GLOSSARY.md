@@ -41,3 +41,11 @@ _Avoid_: 原生文件树, native browser
 The single global preference that chooses which File surface Enter uses for a
 text file. Media always opens in the Viewer regardless of it.
 _Avoid_: 打开方式 as a per-file setting, default view
+
+**Desktop opener**:
+The action that hands one file to the operating system's default application
+through DSH's session controller. It is not a File surface: the file leaves DSH
+and the panel has no further say. The plugin resolves the path inside the
+workspace, refuses the script/app-bundle/installer extensions the OS would
+execute, and hides the control when the host reports no desktop.
+_Avoid_: opening in "the system" as a File surface, calling it a preview

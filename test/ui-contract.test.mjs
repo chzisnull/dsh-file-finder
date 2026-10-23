@@ -278,3 +278,39 @@ test('the Open file browser command browses with no default key', () => {
   assert.match(source, /shortcutBrowse: '打开文件浏览器'/)
   assert.match(source, /shortcutBrowse: 'Open file browser'/)
 })
+
+test('the Desktop opener follows the host capability, never a client guess', () => {
+  // The host answers both halves of the capability (roots: canOpen and the
+  // blocked type list); the panel applies it and keeps no copy of either rule.
+  assert.match(source, /dsh-file-finder\/open/)
+  assert.match(source, /ready: data\.canOpen === true/)
+  assert.match(source, /blocked: Array\.isArray\(data\.blockedExtensions\)/)
+  assert.match(source, /desktop\.blocked\.includes\(extOf\(file\.path\)\)/)
+  assert.match(source, /'data-dff-open': 'default'/)
+  // Its words: the action, its failure and the dirty-editor reason.
+  for (const key of ['openInDefaultApp', 'openInBrowser', 'openDefaultFailed', 'openBeforeDirty']) {
+    assert.match(source, new RegExp(`${key}: '[^']+'`), `${key} must be localized`)
+  }
+  // The browser wording exists only where the host says the platform forces a
+  // browser, and never as a client-side extension rule.
+  assert.match(source, /browser: Array\.isArray\(data\.browserExtensions\)/)
+  assert.match(source, /desktop\.browser\.includes\(extOf\(file\.path\)\)/)
+  // A dirty draft must never be handed to another application, and a click says
+  // why instead of vanishing.
+  assert.match(source, /desktopOpenerButton\(\{ blocked: dirty \}\)/)
+  assert.match(source, /if \(dirty\) \{\s*setNotice\(t\('openBeforeDirty'\)\)/)
+})
+
+test('the Desktop opener stays off the agent tool and keeps the host refusal list', () => {
+  const host = readFileSync(new URL('../index.js', import.meta.url), 'utf8')
+  assert.match(host, /agent: false/)
+  assert.match(host, /const AGENT_ACTIONS = /)
+  assert.match(host, /enum: AGENT_ACTIONS/)
+  // The refusal list is the safety boundary for types the OS would execute, and
+  // it is served to the panel instead of being copied into the client.
+  assert.match(host, /const DESKTOP_OPENER_BLOCKED_EXT = new Set\(\[/)
+  assert.match(host, /'command'/)
+  assert.match(host, /export function desktopOpenerCapability\(ctx\)/)
+  assert.match(host, /export function isBlockedForDesktopOpener\(/)
+  assert.doesNotMatch(source, /'command', 'workflow'/, 'the client must not keep its own blocked list')
+})

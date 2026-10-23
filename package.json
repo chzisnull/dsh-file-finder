@@ -1,6 +1,6 @@
 {
   "name": "dsh-file-finder",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "File finder for DSH: search by name or content, preview images, video, audio, PDF, HTML and Markdown, and edit text files with syntax colours, line numbers and in-file find.",
   "license": "MIT",
   "type": "module",
@@ -34,7 +34,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test test/search.test.mjs test/raw-route.test.mjs test/list-route.test.mjs test/boot-safety.test.mjs test/ui-contract.test.mjs",
+    "test": "node --test test/search.test.mjs test/raw-route.test.mjs test/list-route.test.mjs test/open-route.test.mjs test/boot-safety.test.mjs test/ui-contract.test.mjs",
     "preview": "node preview/screenshot.mjs",
     "check:bot": "node preview/bot-check.mjs",
     "check:find": "node preview/find-check.mjs",

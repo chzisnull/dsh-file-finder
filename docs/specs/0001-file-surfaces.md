@@ -77,7 +77,7 @@ A single resolver chooses the File surface for both Enter and ⌘/Ctrl+Enter, so
 **DSH boundary**
 
 - The plugin registers nothing into DSH's file surfaces: no `sidebarRightTabs` tab type, no `documentPreviews` renderer, no `resources` type, no shadowing of the Files tree. It only calls the documented `sidebarRight.openResource`.
-- No new host routes. The feature lives in the client (settings, resolver, copy) plus docs and tests; the only host change is additive — the existing read-error response now also carries its error `code`, so the client can tell a too-large/not-text read from other failures instead of matching localized copy.
+- No new host routes *for the file surfaces themselves*. The feature lives in the client (settings, resolver, copy) plus docs and tests; the only host change is additive — the existing read-error response now also carries its error `code`, so the client can tell a too-large/not-text read from other failures instead of matching localized copy. One route was added later by Amendment A (Desktop opener) below.
 - Because the plugin changes nothing in DSH, switching the setting off — or uninstalling — restores DSH behaviour with no cleanup.
 
 **Commands and entry**
@@ -110,7 +110,7 @@ No new seams are introduced, and no host-level tests are added because the host 
 - Any per-file, per-directory or per-extension override; switching granularity is the single global Open mode.
 - Replacing DSH's own entry points (Files tree rows, chat file links) with plugin UI.
 - Cross-file/semantic navigation, search ranking, and browse semantics.
-- New host routes, new filesystem access, or changes to save/version handling.
+- New host routes, new filesystem access, or changes to save/version handling for the file surfaces. (Amendment A adds exactly one route, the Desktop opener, and no filesystem access beyond the existing workspace containment check.)
 
 ## Further Notes
 
@@ -119,3 +119,22 @@ No new seams are introduced, and no host-level tests are added because the host 
 - Known limitation: file kinds DSH renders but the Viewer does not (Office/Excel) are routed to the native preview; if DSH is unavailable they show the Viewer's existing unsupported state.
 - Only client files change, so the feature takes effect after a page refresh, not an application restart.
 - Version bump after implementation: 0.11.0.
+
+## Amendment A — Desktop opener (0.12.0)
+
+**What changed.** The Viewer and the Editor gained one action, the **Desktop opener**: it hands the current file to the operating system through DSH's `sessionController.openWorkspacePath`, so a web page lands in whatever the OS opens HTML with and every other file in the app registered for its type. This reverses the "no new host routes" rule for exactly one route, deliberately.
+
+**Why it is still inside the boundary.** The plugin still registers nothing with DSH and shadows nothing: it calls one documented host service and adds one route of its own (`POST /dsh-file-finder/open`, in the existing `ACTIONS` table). The platform half — browser preference, WSL translation, credential-scrubbed launch, "is there a desktop" — stays DSH's. A plugin that spawned `open` itself would be the thing ADR 0001 warns about; calling the host keeps DSH free to change its own launcher.
+
+**Behaviour bound by this amendment.**
+
+- The host answers the capability, not the client: `roots` returns `canOpen` (this host reaches a desktop), `blockedExtensions` (script/app-bundle/installer extensions the OS would execute rather than open) and `browserExtensions` (the extensions DSH really forces into the default browser — macOS only). The panel applies all three and keeps no copy of any rule; `read` no longer carries a per-file answer.
+- Refused extensions never get the control, including in the Viewer's unsupported state. The refusal is filename-based by design; the route re-checks so a bypass cannot launch anything.
+- Availability is `canOpenWorkspacePath()`'s answer: a controller without that method counts as unavailable.
+- The action is `agent: false`: the `file_finder` agent tool never offers it, and a direct call through the tool is rejected.
+- A draft with unsaved changes keeps the control inert (its tooltip says why, and a click shows the same reason as a notice) until the file is saved.
+- Copy names the browser only where `browserExtensions` says the platform forces one; everywhere else it says "用默认应用打开" / "Open in default app". Both aria labels still carry the file name.
+- Failure is a retry on the control itself ("打开失败，点击重试"); success is silent.
+- Availability is DSH's answer, not a reachability probe: a macOS host reached over SSH reports available while the window opens on the remote machine. Opening an HTML file opens the one on disk, so a page needing a local dev server renders empty.
+
+**Not changed.** Native preview, Files tree, Open mode, media routing and every other surface stay as specified above. Only client files and one additive host action change, so the feature takes effect after a page refresh, not an application restart.

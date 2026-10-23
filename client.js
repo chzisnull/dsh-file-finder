@@ -137,6 +137,12 @@ window.__ModuleLoader__.load({
         previewUnsupported: '这种文件暂时不能在面板里预览',
         previewUnsupportedHint: '可以在原生预览中打开，或先把这个文件导出到别处再用系统程序打开。',
         previewHtmlNote: 'HTML 在沙箱中运行，脚本无法访问 DSH 页面。',
+        openInDefaultApp: '用默认应用打开',
+        openInBrowser: '用浏览器打开',
+        openInDefaultAppAria: '用默认应用打开 {name}',
+        openInBrowserAria: '用浏览器打开 {name}',
+        openDefaultFailed: '打开失败，点击重试',
+        openBeforeDirty: '先在编辑器里保存，再用默认应用打开',
         kindImage: '图片',
         kindVideo: '视频',
         kindAudio: '音频',
@@ -269,6 +275,12 @@ window.__ModuleLoader__.load({
         previewUnsupported: 'This file type cannot be previewed here yet',
         previewUnsupportedHint: 'Open it in the native preview, or export the file and use a system app.',
         previewHtmlNote: 'HTML runs sandboxed; its scripts cannot reach the DSH page.',
+        openInDefaultApp: 'Open in default app',
+        openInBrowser: 'Open in browser',
+        openInDefaultAppAria: 'Open {name} in the default app',
+        openInBrowserAria: 'Open {name} in the browser',
+        openDefaultFailed: 'Could not open. Click to retry',
+        openBeforeDirty: 'Save your changes before opening in the default app',
         kindImage: 'Image',
         kindVideo: 'Video',
         kindAudio: 'Audio',
@@ -1860,6 +1872,15 @@ window.__ModuleLoader__.load({
       return h(Icon, props, h('rect', { key: 'a', x: 2.1, y: 2.8, width: 11.8, height: 10.4, rx: 2 }), h('path', { key: 'b', d: 'M9.6 2.8v10.4' }))
     }
 
+    // This action leaves DSH for the desktop's own application, so the glyph
+    // is the standard "out of the box" arrow, not the sidebar's panel icon.
+    function OpenExternalIcon(props) {
+      return h(Icon, props,
+        h('path', { key: 'a', d: 'M9.6 2.9h3.5v3.5' }),
+        h('path', { key: 'b', d: 'M13.1 2.9 7.6 8.4' }),
+        h('path', { key: 'c', d: 'M12.1 9.7v2.5c0 .6-.5 1.1-1.1 1.1H3.8c-.6 0-1.1-.5-1.1-1.1V4.9c0-.6.5-1.1 1.1-1.1h2.5' }))
+    }
+
     function WarningIcon(props) {
       return h(Icon, props, h('path', { key: 'a', d: 'M8 2.7 14 13H2z' }), h('path', { key: 'b', d: 'M8 6.3v3.1' }), h('path', { key: 'c', d: 'M8 11.4v.1' }))
     }
@@ -2072,6 +2093,10 @@ window.__ModuleLoader__.load({
       const [error, setError] = useState('')
       const [notice, setNotice] = useState('')
       const [file, setFile] = useState(null)
+      // The host's Desktop opener capability: whether it reaches a desktop at
+      // all, and the type list it refuses. The panel keeps no rule of its own.
+      const [desktop, setDesktop] = useState({ ready: false, blocked: [], browser: [] })
+      const [openPhase, setOpenPhase] = useState('idle')
       // The Viewer and the Editor share the code view; this flag makes the text
       // read-only, hides Save and reports the read-only state.
       const [readOnly, setReadOnly] = useState(false)
@@ -2127,6 +2152,8 @@ window.__ModuleLoader__.load({
         setNotice('')
         setConfirmAction('')
         setFile(null)
+        setDesktop({ ready: false, blocked: [], browser: [] })
+        setOpenPhase('idle')
         setReadOnly(false)
         setSurface(SURFACE.VIEWER)
         if (toastTimer.current) {
@@ -2152,6 +2179,11 @@ window.__ModuleLoader__.load({
           if (cancelled) return
           const items = Array.isArray(data.roots) ? data.roots : []
           setRoots(items)
+          setDesktop({
+            ready: data.canOpen === true,
+            blocked: Array.isArray(data.blockedExtensions) ? data.blockedExtensions.map(String) : [],
+            browser: Array.isArray(data.browserExtensions) ? data.browserExtensions.map(String) : [],
+          })
           setRoot((previous) => {
             const candidate = previous || session.cwd || (items[0] && items[0].path) || ''
             if (!items.length || items.some((item) => item.path === candidate)) return candidate
@@ -2634,6 +2666,7 @@ window.__ModuleLoader__.load({
       // would help.
       function showUnsupportedFile(item) {
         setFile({ path: item.path, line: item.line || 1, kind: 'binary', text: '' })
+        setOpenPhase('idle')
         setDraft('')
         setStatus('')
         setError('')
@@ -2686,6 +2719,7 @@ window.__ModuleLoader__.load({
             line: item.line || 1,
             kind,
           })
+          setOpenPhase('idle')
           setDraft(text)
           // Media keeps the Viewer body even when the caller asked for the
           // Editor (for example a Markdown link); the surface follows what is
@@ -2752,6 +2786,60 @@ window.__ModuleLoader__.load({
       async function openSecondary(item) {
         if (busy) return
         await openSurface(item, false)
+      }
+
+      // Hand this file to the desktop's default application. DSH owns the
+      // platform side; the host's capability answer says which types it refuses,
+      // so a click only carries that decision out.
+      async function openWithDesktopOpener() {
+        if (!file || openPhase === 'opening') return
+        if (dirty) {
+          setNotice(t('openBeforeDirty'))
+          return
+        }
+        setOpenPhase('opening')
+        try {
+          await post('/dsh-file-finder/open', { root, path: file.path })
+          setOpenPhase('idle')
+        } catch {
+          setOpenPhase('error')
+        }
+      }
+
+      /** Whether the Desktop opener applies to the file on screen. */
+      function openableNow() {
+        return Boolean(file && desktop.ready && !desktop.blocked.includes(extOf(file.path)))
+      }
+
+      function desktopOpenerCopy() {
+        const name = file ? baseName(file.path) : t('title')
+        const browser = Boolean(file && desktop.browser.includes(extOf(file.path)))
+        const key = browser ? 'openInBrowser' : 'openInDefaultApp'
+        return {
+          text: openPhase === 'error' ? t('openDefaultFailed') : t(key),
+          aria: textOf(t, key + 'Aria', { name }),
+        }
+      }
+
+      // One control for both surfaces. A draft with unsaved changes stays
+      // focusable so its reason is reachable, but the click is a no-op.
+      function desktopOpenerButton(options) {
+        if (!openableNow()) return null
+        const blocked = Boolean(options && options.blocked)
+        const copy = desktopOpenerCopy()
+        return h('button', {
+          type: 'button',
+          className: 'dff-icon-btn',
+          'data-dff-open': 'default',
+          'data-phase': openPhase,
+          'aria-label': copy.aria,
+          'aria-disabled': blocked || openPhase === 'opening' ? 'true' : undefined,
+          title: blocked ? t('openBeforeDirty') : copy.text,
+          disabled: openPhase === 'opening',
+          onClick: openWithDesktopOpener,
+        }, openPhase === 'opening'
+          ? h(Spinner, { size: 14 })
+          : h(OpenExternalIcon, { size: 16 }))
       }
 
       function previewCurrent() {
@@ -3487,6 +3575,7 @@ window.__ModuleLoader__.load({
                 type: 'button', className: 'dff-ghost-btn', disabled: busy, onClick: switchToEditor,
               }, t('editText')) : null,
               h('button', { type: 'button', className: 'dff-icon-btn', 'aria-label': t('openInSidebar'), title: t('openInSidebar'), disabled: busy, onClick: previewCurrent }, h(SidebarIcon, { size: 16 })),
+              desktopOpenerButton(),
               h('button', { type: 'button', className: 'dff-icon-btn', 'aria-label': t('reload'), title: t('reload'), disabled: busy, onClick: reloadFile }, h(RefreshIcon, { size: 15 })),
               h('button', { type: 'button', className: 'dff-icon-btn', 'aria-label': t('close'), onClick: closePanel }, h(CloseIcon, { size: 16 })))),
           message(),
@@ -3521,6 +3610,7 @@ window.__ModuleLoader__.load({
                 'aria-label': t('navBack'), title: t('navBack'), onClick: navBack,
               }, h(BackIcon, { size: 16 })) : null,
               h('button', { type: 'button', className: 'dff-icon-btn', 'aria-label': t('openInSidebar'), title: t('openInSidebar'), disabled: busy, onClick: previewCurrent }, h(SidebarIcon, { size: 16 })),
+              desktopOpenerButton({ blocked: dirty }),
               h('button', { type: 'button', className: 'dff-icon-btn', 'aria-label': t('reload'), title: t('reload'), disabled: busy, onClick: reloadFile }, h(RefreshIcon, { size: 15 })),
               readOnly ? null : h('button', { type: 'button', className: 'dff-save', disabled: busy || !dirty, onClick: saveFile },
                 h(CheckIcon, { size: 14 }), busy ? t('saving') : t('save')),
@@ -4047,6 +4137,9 @@ window.__ModuleLoader__.load({
       .dff-icon-btn:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
       .dff-icon-btn:active { background: var(--dsw-alias-interactive-bg-active); }
       .dff-icon-btn:disabled { opacity: 0.35; cursor: default; }
+      .dff-icon-btn[data-phase="opening"] { opacity: 0.55; }
+      .dff-icon-btn[aria-disabled="true"] { opacity: 0.35; cursor: default; }
+      .dff-icon-btn[data-phase="error"] { color: var(--dsw-alias-state-error-primary); }
       .dff-icon-btn:focus-visible { outline: 2px solid color-mix(in srgb, var(--dsw-alias-state-business-primary) 65%, transparent); outline-offset: 1px; }
 
       /* ── Search field ─────────────────────────────────────────────────── */

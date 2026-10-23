@@ -100,6 +100,7 @@ internal state, so a broken registration or shortcut is visible in the screensho
 | `POST /dsh-file-finder/search-content` | 6 files / 13 line hits with line numbers |
 | `POST /dsh-file-finder/read` | a realistic 35-line `index.js` |
 | `POST /dsh-file-finder/write` | success, plus a version-conflict response for `client.js` |
+| `POST /dsh-file-finder/open` | acknowledges the Desktop opener without starting an application |
 
 The page never touches the real filesystem and never reaches the network.
 
@@ -190,7 +191,7 @@ preview/
   theme.css         generated DSH tokens + host typography
   screenshot.mjs     server + Playwright runner, validation, manifest, table
   find-check.mjs     editor line-gutter + in-file find checks (`npm run check:find`)
-  viewer-check.mjs   image/video/audio/PDF/HTML/Markdown viewer checks (`npm run check:viewer`)
+  viewer-check.mjs   viewer checks, incl. the desktop opener's states (`npm run check:viewer`)
   intel-check.mjs    ⌘ hover / same-file jump / back checks (`npm run check:intel`)
   browse-check.mjs   directory browsing + Open-mode/kind surface checks (`npm run check:browse`)
   token-check.mjs    syntax colour / window / IME / large-file checks (`npm run check:tokens`)

@@ -43,6 +43,19 @@ const MARKDOWN_EXT = new Set(['md', 'markdown', 'mdown', 'mdx'])
 const HTML_EXT = new Set(['html', 'htm'])
 const PDF_EXT = new Set(['pdf'])
 
+// Handing these to the operating system runs code instead of opening a
+// document, so the Desktop opener refuses them and the panel never draws its
+// control for them.
+const DESKTOP_OPENER_BLOCKED_EXT = new Set([
+  'app', 'command', 'workflow', 'scpt', 'sh', 'bash', 'zsh', 'fish', 'csh', 'ksh',
+  'exe', 'bat', 'cmd', 'ps1', 'msi', 'lnk', 'pkg', 'mpkg', 'jar', 'appimage', 'run',
+])
+
+// Extensions DSH hands to the default browser instead of the file association
+// on macOS (LaunchServices' https handler). Elsewhere the association rules, so
+// the panel only promises a browser where that promise holds.
+const BROWSER_DOCUMENT_EXT = ['html', 'htm', 'xhtml', 'svg']
+
 const MIME_TYPES = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
   webp: 'image/webp', avif: 'image/avif', bmp: 'image/bmp', ico: 'image/x-icon',
@@ -221,6 +234,69 @@ async function resolveInside(ctx, rootPath, targetPath) {
     throw Object.assign(new Error('路径超出当前工作区'), { code: 'outside' })
   }
   return { root, target }
+}
+
+// ── The Desktop opener ─────────────────────────────────────────────────────
+// DSH owns the platform side of handing a path to the operating system: its
+// session controller opens HTML, XHTML and SVG in the default browser and
+// everything else in the association for the type, never through a shell, and
+// answers false on a host with no reachable desktop. The plugin only resolves
+// the path inside the workspace and refuses types the OS would execute.
+function desktopOpenerOf(ctx) {
+  let controller
+  try {
+    controller = ctx && typeof ctx.get === 'function' ? ctx.get('sessionController') : undefined
+  } catch {
+    controller = undefined
+  }
+  if (!controller || typeof controller.openWorkspacePath !== 'function') return null
+  if (typeof controller.canOpenWorkspacePath !== 'function') return null
+  try {
+    if (controller.canOpenWorkspacePath() !== true) return null
+  } catch {
+    return null
+  }
+  return controller
+}
+
+/** Whether the operating system would execute this path instead of opening it. */
+export function isBlockedForDesktopOpener(displayPath) {
+  return DESKTOP_OPENER_BLOCKED_EXT.has(extensionOf(displayPath))
+}
+
+/**
+ * What the panel may offer: whether this host reaches a desktop at all, and the
+ * type list the opener refuses. Both answers come from here so the panel never
+ * keeps its own copy of either rule.
+ */
+export function desktopOpenerCapability(ctx) {
+  return {
+    canOpen: desktopOpenerOf(ctx) !== null,
+    blockedExtensions: [...DESKTOP_OPENER_BLOCKED_EXT],
+    browserExtensions: process.platform === 'darwin' ? [...BROWSER_DOCUMENT_EXT] : [],
+  }
+}
+
+/**
+ * Hand one file inside the workspace to the desktop's default application.
+ * @returns the host path that was opened.
+ */
+export async function openWithDesktopOpener(ctx, rootPath, filePath, signal) {
+  const { target } = await resolveInside(ctx, rootPath, filePath)
+  const info = await ctx.fs.stat(target, signal)
+  if (!info || info.type !== 'file') {
+    throw Object.assign(new Error('不是可以打开的文件'), { code: 'not-file' })
+  }
+  const path = visiblePath(ctx, target)
+  if (isBlockedForDesktopOpener(path)) {
+    throw Object.assign(new Error('这个文件类型会在系统里执行，不能直接打开'), { code: 'denied' })
+  }
+  const controller = desktopOpenerOf(ctx)
+  if (!controller) {
+    throw Object.assign(new Error('当前环境没有可用的桌面程序'), { code: 'no-desktop' })
+  }
+  await controller.openWorkspacePath({ path }, signal || new AbortController().signal)
+  return { ok: true, path }
 }
 
 async function fileBytes(ctx, entry, signal) {
@@ -419,7 +495,7 @@ export async function listDirectory(ctx, rootPath, dirPath, signal, options) {
   }
 }
 
-async function readFile(ctx, rootPath, filePath, signal) {
+export async function readFile(ctx, rootPath, filePath, signal) {
   const { target } = await resolveInside(ctx, rootPath, filePath)
   const info = await ctx.fs.stat(target, signal)
   if (!info || info.type !== 'file') throw Object.assign(new Error('不是可预览的文件'), { code: 'not-text' })
@@ -634,7 +710,12 @@ async function saveFile(ctx, rootPath, filePath, content, version, signal) {
 const ACTIONS = {
   roots: {
     route: 'roots',
-    run: ({ ctx, agent }) => ({ ok: true, roots: collectRoots(ctx), current: cwdOf(agent) }),
+    run: ({ ctx, agent }) => ({
+      ok: true,
+      roots: collectRoots(ctx),
+      current: cwdOf(agent),
+      ...desktopOpenerCapability(ctx),
+    }),
   },
   list: {
     route: 'list',
@@ -657,12 +738,25 @@ const ACTIONS = {
     bodyLimit: 2_000_000,
     run: ({ ctx, root, args, signal }) => saveFile(ctx, root, args.path, args.content, args.version, signal),
   },
+  // The panel's desktop opener. `agent: false` keeps it off the agent tool: an
+  // agent must never launch a graphical application on the user's machine.
+  open: {
+    route: 'open',
+    agent: false,
+    run: ({ ctx, root, args, signal }) => openWithDesktopOpener(ctx, root, args.path, signal),
+  },
 }
+
+/** Actions the agent tool offers: every route minus the host-only ones. */
+const AGENT_ACTIONS = Object.entries(ACTIONS)
+  .filter(([, spec]) => spec.agent !== false)
+  .map(([action]) => action)
 
 async function dispatch(ctx, args, agent, signal) {
   const action = args && args.action
   const spec = ACTIONS[action]
   if (!spec) throw new Error('未知操作')
+  if (agent && spec.agent === false) throw new Error('这个操作不对 agent 开放')
   const root = (args && args.root) || cwdOf(agent)
   return spec.run({ ctx, root, signal, args: args || {}, agent })
 }
@@ -745,7 +839,7 @@ function registerTool(ctx) {
       properties: {
         action: {
           type: 'string',
-          enum: Object.keys(ACTIONS),
+          enum: AGENT_ACTIONS,
           description: 'roots lists workspace directories. list lists one directory inside root. search-name matches file names. search-content matches text. read and save operate on one UTF-8 file inside root.',
         },
         root: { type: 'string', description: 'Workspace directory. Omit to use the current session directory when the caller has one.' },

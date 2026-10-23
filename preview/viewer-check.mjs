@@ -4,9 +4,10 @@
  *
  * Serves the repository and mounts `preview/viewer-check.html`, which drives the
  * palette against a fake workspace and opens a Markdown file, an image, an HTML
- * page, a video and a binary file. It verifies the viewer picks the right
- * surface for each kind, that media goes through the raw route, that HTML is
- * sandboxed, and that read-only kinds offer no Save.
+ * page, a video, a binary file and a script. It verifies the viewer picks the
+ * right surface for each kind, that media goes through the raw route, that HTML
+ * is sandboxed, that read-only kinds offer no Save, and that the desktop opener
+ * follows the host's answer through its idle, opening, failed and hidden states.
  *
  *   node preview/viewer-check.mjs
  *

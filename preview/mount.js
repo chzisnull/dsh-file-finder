@@ -311,7 +311,16 @@ export function rankName(query, displayPath, options = {}) {
     network.push({ path, body })
 
     if (path === '/dsh-file-finder/roots') {
-      return jsonResponse({ ok: true, roots: ROOTS, current: CWD }, 60)
+      // The Desktop opener exists in this harness, so the screenshots show the
+      // control the real host would offer for these types.
+      return jsonResponse({
+        ok: true, roots: ROOTS, current: CWD, canOpen: true,
+        blockedExtensions: ['app', 'command', 'sh', 'zsh', 'exe', 'bat', 'cmd', 'ps1', 'pkg', 'jar'],
+        browserExtensions: ['html', 'htm', 'xhtml', 'svg'],
+      }, 60)
+    }
+    if (path === '/dsh-file-finder/open') {
+      return jsonResponse({ ok: true, path: body.path || '' }, 80)
     }
     if (path === '/dsh-file-finder/list') {
       const dir = String(body.path || CWD)

@@ -857,6 +857,62 @@ Optional polish (not required for the integration): style result rows with
 
 ---
 
+## 9. Handing a file to the desktop's default application
+
+DSH ships the platform half of "open with the system app": the host's
+`sessionController.openWorkspacePath({ path })` (Remote name
+`session/openWorkspacePath`) runs `@deepseek-ai/dsh-native-command`'s
+`openNativePath`. Verified against the packages on disk:
+
+- macOS runs `open <path>`; `.html`, `.htm`, `.xhtml` and `.svg` are handed to
+  the **default browser** explicitly (LaunchServices' `https` handler) instead
+  of the file association. Linux runs `xdg-open` (or `$BROWSER` for those four
+  extensions), Windows `Invoke-Item`, WSL translates the path first. The button
+  therefore names the browser ("用浏览器打开") only on macOS, where DSH really
+  forces one, and says "用默认应用打开" elsewhere, where the OS association
+  decides.
+- Nothing goes through a shell, and `canOpenNativePath()` answers false on a
+  headless Linux host — which is what makes hiding the control the right failure
+  mode rather than a broken click. `sessionController.canOpenWorkspacePath()`
+  adds the deployment override (`nativeOpen`).
+
+The plugin owns only three things, all in `index.js`:
+
+1. `resolveInside` — the same workspace containment every other action uses;
+2. `DESKTOP_OPENER_BLOCKED_EXT` — `open` **executes** files with a script, app
+   bundle or installer extension (`.command`, `.app`, `.sh`, `.exe`, `.pkg`, …),
+   so those extensions are refused by name before anything is spawned. The
+   refusal is filename-based: an executable with another suffix is not detected,
+   which is why the route re-checks instead of trusting the panel;
+3. the capability read — `roots` answers `canOpen` (this host reaches a desktop),
+   `blockedExtensions` (the refusal list above) and `browserExtensions` (the
+   extensions DSH forces into the default browser, which is only macOS), and the
+   panel applies all three, so none of the rules is copied into `client.js`.
+
+`/dsh-file-finder/open` is the one action marked `agent: false` in `ACTIONS`
+(the tool enum is built from `AGENT_ACTIONS`): an agent must not launch a GUI
+application on the user's machine.
+
+Verified DSH sources (nvm global 0.1.6-alpha.2, same surface as the packaged
+0.2.1-rc.2 the GUI runs):
+
+- `@deepseek-ai/dsh-native-command/lib/types/path-opener.js` —
+  `BROWSER_DOCUMENTS`, `openNativePathWithIntent`, `canOpenNativePath`
+- `@deepseek-ai/dsh-api-session-controller/lib/types/index.js` —
+  `openWorkspacePath`, `canOpenWorkspacePath`
+- `@deepseek-ai/dsh-api-session-controller/lib/typert.remote-client.d.ts` —
+  the wire name `session/openWorkspacePath`
+- `@deepseek-ai/dsh-client-ui-deliverables/lib/client.js` — the toolbar button
+  `diff.openNative` ("用默认应用打开"), whose copy and retry-on-the-button
+  behaviour this plugin follows
+
+Known boundary: availability is DSH's answer, not a reachability probe. A macOS
+host reached over SSH reports available while the window would open on the
+remote machine; the plugin documents that instead of inventing its own
+detection. Opening an HTML file opens the one on disk (`file://`), so a page
+that needs a local dev server renders empty — that is the page's dependency, not
+the opener's.
+
 ## Appendix A — reproducing the asar citations
 
 ```bash

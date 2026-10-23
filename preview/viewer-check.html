@@ -13,7 +13,11 @@
       '/ws/page.html': { kind: 'html', text: '<!doctype html><h1>hi</h1>', bytes: 40 },
       '/ws/clip.mp4': { kind: 'video', bytes: 4096 },
       '/ws/data.bin': { kind: 'binary', bytes: 32 },
+      '/ws/install.command': { kind: 'text', text: '#!/bin/sh\necho hi\n', bytes: 18 },
+      '/ws/setup.exe': { kind: 'binary', bytes: 12 },
     }
+    // The desktop opener's fake host: the checks flip these between files.
+    window.__FAKE_HOST__ = { canOpen: true, failOpen: false, opens: [] }
     function response(body, status) {
       return { ok: true, status: status || 200, json: function () { return Promise.resolve(body) } }
     }
@@ -24,7 +28,16 @@
       var body = {}
       try { if (init && typeof init.body === 'string') body = JSON.parse(init.body) } catch (error) { body = {} }
       if (path === '/dsh-file-finder/roots') {
-        return Promise.resolve(response({ ok: true, roots: [{ path: '/ws', title: 'ws', source: 'workspace' }], current: '/ws' }))
+        return Promise.resolve(response({ ok: true, roots: [{ path: '/ws', title: 'ws', source: 'workspace' }], current: '/ws',
+          canOpen: window.__FAKE_HOST__.canOpen,
+          blockedExtensions: ['app', 'command', 'sh', 'exe', 'jar'],
+          browserExtensions: ['html', 'htm'] }))
+      }
+      if (path === '/dsh-file-finder/open') {
+        window.__FAKE_HOST__.opens.push(body)
+        return Promise.resolve(response(window.__FAKE_HOST__.failOpen
+          ? { ok: false, error: 'boom' }
+          : { ok: true, path: body.path }))
       }
       if (path === '/dsh-file-finder/search-name') {
         var query = String(body.query || '')
@@ -118,6 +131,36 @@
       await waitFor(function () { return document.querySelector('[data-dff-input]') }, 6000)
     }
 
+    // Text kinds render the read-only Editor rather than a viewer body, so they
+    // are opened by name and awaited on the editor hook.
+    async function openTextFile(name) {
+      var input = await waitFor(function () { return document.querySelector('[data-dff-input]') }, 6000)
+      setInputValue(input, name)
+      // The palette debounces and keeps the previous rows until the next answer,
+      // so wait before insisting on a row (as openSearch does).
+      await new Promise(function (resolve) { setTimeout(resolve, 350) })
+      await waitFor(function () { return document.querySelector('[data-dff-result]') }, 8000)
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }))
+      return waitFor(function () { return document.querySelector('[data-dff-editor]') }, 8000)
+    }
+
+    function panel() { return document.querySelector('[data-dff-palette]') }
+
+    // Escape walks back one screen at a time, so closing may need a few keys.
+    async function closePalette() {
+      for (var step = 0; step < 3 && panel(); step += 1) {
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+        await new Promise(function (resolve) { setTimeout(resolve, 220) })
+      }
+      await waitFor(function () { return !panel() }, 5000)
+    }
+
+    async function openPaletteAgain() {
+      var shortcut = shortcuts.filter(function (command) { return command.id === 'files.searchName' })[0]
+      shortcut.resolve().run()
+      await waitFor(function () { return Boolean(document.querySelector('[data-dff-input]')) }, 6000)
+    }
+
     ;(async function run() {
       var moduleExports = window.__DFF_MODULE__
       await moduleExports.apply(ctx)
@@ -154,6 +197,61 @@
 
       var binary = await openSearch('data.bin')
       check('binary shows the unsupported state', Boolean(document.querySelector('.dff-viewer-empty')))
+
+      // The desktop opener. The host decides whether the control exists; the
+      // panel only carries the decision out and reports its own outcome.
+      await openSearch('notes.md')
+      var openBtn = document.querySelector('[data-dff-open="default"]')
+      check('the viewer offers the desktop opener', Boolean(openBtn))
+      check('the generic copy names the default application', Boolean(openBtn)
+        && openBtn.getAttribute('title') === 'openInDefaultApp', openBtn ? openBtn.getAttribute('title') : '')
+      if (openBtn) openBtn.click()
+      await new Promise(function (resolve) { setTimeout(resolve, 120) })
+      check('one click hands the file path to the host',
+        window.__FAKE_HOST__.opens.length === 1 && window.__FAKE_HOST__.opens[0].path === '/ws/notes.md',
+        JSON.stringify(window.__FAKE_HOST__.opens))
+      var settled = document.querySelector('[data-dff-open="default"]')
+      check('a successful open returns to idle', Boolean(settled) && settled.getAttribute('data-phase') === 'idle',
+        settled ? settled.getAttribute('data-phase') : '')
+      await backToSearch()
+
+      window.__FAKE_HOST__.failOpen = true
+      await openSearch('notes.md')
+      var failing = document.querySelector('[data-dff-open="default"]')
+      if (failing) failing.click()
+      var retry = await waitFor(function () {
+        return document.querySelector('[data-dff-open="default"][data-phase="error"]')
+      }, 4000).catch(function () { return null })
+      check('a failed open becomes a retry', Boolean(retry))
+      check('the retry copy reports the failure', Boolean(retry)
+        && retry.getAttribute('title') === 'openDefaultFailed', retry ? retry.getAttribute('title') : '')
+      await backToSearch()
+      window.__FAKE_HOST__.failOpen = false
+
+      await openSearch('page.html')
+      var htmlOpen = document.querySelector('[data-dff-open="default"]')
+      check('an HTML page names the browser where the host forces one', Boolean(htmlOpen)
+        && htmlOpen.getAttribute('title') === 'openInBrowser', htmlOpen ? htmlOpen.getAttribute('title') : '')
+      check('the browser copy still names the file for assistive tech', Boolean(htmlOpen)
+        && htmlOpen.getAttribute('aria-label') === 'openInBrowserAria', htmlOpen ? htmlOpen.getAttribute('aria-label') : '')
+      await backToSearch()
+
+      var script = await openTextFile('install.command')
+      check('an executable type offers no opener', Boolean(script) && !document.querySelector('[data-dff-open="default"]'))
+      await backToSearch()
+
+      var binary = await openSearch('setup.exe')
+      check('a refused binary in the unsupported state offers no opener',
+        Boolean(binary) && !document.querySelector('[data-dff-open="default"]'))
+      await backToSearch()
+
+      // A host without a desktop is only known once the palette reads roots, so
+      // the answer is re-read on the next open.
+      await closePalette()
+      window.__FAKE_HOST__.canOpen = false
+      await openPaletteAgain()
+      await openSearch('notes.md')
+      check('a host without a desktop hides the opener', !document.querySelector('[data-dff-open="default"]'))
 
       window.__VIEWER_CHECK__ = {
         passed: results.every(function (item) { return item.ok }),

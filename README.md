@@ -17,6 +17,7 @@ A DeepSeek Harness plugin for finding workspace files without leaving DSH: searc
 - **Search by content**, with one result row per matching line.
 - **Choose where files open**: one global **Open mode** picks which File surface Enter uses for text — **Native preview** (DSH's right-sidebar document preview, the default), the plugin's own **Viewer** (read-only, with syntax colours and in-file find) or the **Editor** (saves through DSH's workspace filesystem and refuses to overwrite a file that changed after it was loaded). Cmd/Ctrl+Enter always opens the other side of view/edit.
 - **Media always uses the Viewer**: images, video, audio, PDFs, HTML and Markdown open in the plugin's Viewer whatever the Open mode is; kinds the Viewer cannot render (Office documents, archives, binaries) go to DSH's native preview instead, with a notice when it is unavailable.
+- **Desktop opener**: the Viewer and Editor carry an "Open in default app" button that hands the file to the operating system through DSH — a web page lands in the system's default browser (named as such on macOS, where DSH forces it), everything else in the app registered for that type. The host decides whether it reaches a desktop at all and which types it refuses, so executable files (scripts, app bundles, installers) never get the control, a host without a desktop does not show it, a failed open stays on the button as a retry, and a draft with unsaved changes keeps it inert until you save.
 - **Native shortcuts**: Cmd/Ctrl+P and Cmd/Ctrl+Shift+F, like VS Code, without claiming a default binding in DSH's shortcut registry.
 - **Optional DS Bot bridge**: when the DS Bot plugin is installed, Cmd/Ctrl+Shift+B flips between Bot mode and classic Agent mode; without it neither the shortcut nor its settings card exists.
 - **Preview, not just text**: images, video, audio, PDFs, HTML pages and Markdown open in the built-in viewer; HTML runs in a sandbox, Markdown is rendered with DSH's own renderer, and relative images inside a Markdown file resolve to the workspace.
@@ -123,7 +124,7 @@ node --check client.js
 npm test
 ```
 
-`npm test` covers the search helpers, the shortcut-default regression guard, and the UI contract (native preview address, palette hooks, reduced-motion rules, the DS Bot bridge, and the editor's line gutter, in-file find and syntax colours).
+`npm test` covers the search helpers, the Desktop opener's host action and refusal list, the shortcut-default regression guard, and the UI contract (native preview address, palette hooks, reduced-motion rules, the DS Bot bridge, and the editor's line gutter, in-file find and syntax colours).
 
 Browser checks are split by feature:
 
