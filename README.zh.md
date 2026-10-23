@@ -4,6 +4,12 @@ DeepSeek Harness 插件：在 DSH 里按文件名或文件内容查找工作区�
 
 [English](README.md)
 
+![dsh-file-finder — 一个面板打开整个工作区](docs/media/hero-zh.jpg)
+
+▶ **36 秒介绍片（中文，带字幕）：** [dsh-file-finder-promo-zh.mp4](docs/media/video/dsh-file-finder-promo-zh.mp4) · [English version](docs/media/video/dsh-file-finder-promo.mp4)
+
+![快速演示：搜索、结果、编辑器、查看器](docs/media/preview-zh.gif)
+
 ## 能做什么
 
 - **没有搜索词时直接浏览**：面板为空时列出当前工作区目录——文件夹在前、文件在后；回车或 → 进入下级，⌫ 返回上级，也可以点面包屑跳转。开始输入就切换成正常搜索，清空后回到刚才浏览的目录。**Esc** 逐层后退：先从事先的预览/编辑器回到打开它的目录，再逐级向上，最后才关闭面板。
@@ -80,6 +86,17 @@ DS Bot 的模式切换是它自己的私有状态，没有对外暴露客户端�
 文本按语法着色：关键字、类型、字符串、数字、注释、调用、属性，以及 HTML/CSS/JSON/Markdown 的标记各有颜色，亮暗两套主题分别配色。标记类文件里嵌着的语言也会着对应颜色——Vue/Svelte/HTML 的 `<script>` 走脚本规则、`<style>` 走 CSS 规则，Vue 的 `{{ }}` 插值和 `:prop`、`@click`、`v-if` 这类指令值按代码着色；Markdown 里标了语言的代码围栏按该语言着色。输入框仍负责光标、选区和输入法；只绘制可见行，大文件滚动不卡。超过 200 KB 的文件自动退回纯文本并在标题栏说明，文件内查找时颜色会保留在高亮下面。
 
 编辑器左边有行号栏，并高亮光标所在行。**⌘/Ctrl+F** 打开文件内查找：所有命中都会高亮、当前命中更醒目，带命中计数、上一个/下一个按钮和 **Aa** 区分大小写开关；回车/⇧回车切换命中，Esc 关闭查找并把焦点交还正文。
+
+## 截图
+
+| | |
+| --- | --- |
+| ![按文件名搜索](docs/media/screenshots/zh/palette-search.png) | ![浏览工作区](docs/media/screenshots/zh/browse.png) |
+| **按文件名或路径搜索** | **没有搜索词时浏览目录** |
+| ![编辑器：语法着色与文件内查找](docs/media/screenshots/zh/editor-find.png) | ![内置查看器](docs/media/screenshots/zh/viewer.png) |
+| **语法着色、行号、文件内查找** | **内置查看器：图片、HTML、Markdown、视频** |
+| ![设置：三档打开方式](docs/media/screenshots/zh/settings.png) | ![深色主题编辑器](docs/media/screenshots/dark/editor-dark.png) |
+| **一个全局「打开方式」覆盖三种界面** | **同一编辑器在深色主题下** |
 
 ## 安装
 

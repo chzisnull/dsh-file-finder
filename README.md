@@ -1,8 +1,14 @@
 # dsh-file-finder
 
-A DeepSeek Harness plugin for finding workspace files without leaving DSH: search by file name or by file content, then open the result in DSH's native preview (in the right sidebar) — or in the built-in editor when you need to change something.
+A DeepSeek Harness plugin for finding workspace files without leaving DSH: search by file name or by file content, browse the workspace when there is nothing to type, then open the result in DSH's native preview, the plugin's own viewer, or the built-in editor.
 
 [中文文档](README.zh.md)
+
+![dsh-file-finder — one panel over your workspace](docs/media/hero.jpg)
+
+▶ **36-second tour (English, captions):** [dsh-file-finder-promo.mp4](docs/media/video/dsh-file-finder-promo.mp4) · [中文版](docs/media/video/dsh-file-finder-promo-zh.mp4)
+
+![Quick tour: search, results, editor, viewer](docs/media/preview.gif)
 
 ## What it does
 
@@ -79,6 +85,17 @@ Hold **Cmd/Ctrl** in the editor and every identifier that resolves gains a dotte
 Text is coloured lexically: keywords, types, strings, numbers, comments, calls, properties and HTML/CSS/JSON/Markdown markup each get their own colour in both DSH themes. Markup files also colour what hides inside them — Vue/Svelte/HTML `<script>` blocks run the script scanner, `<style>` blocks the CSS one, and Vue `{{ }}` expressions and directive values (`:prop`, `@click`, `v-if`) are coloured as code — and a Markdown fenced block is coloured as the language it names. The textarea keeps the caret, selection and IME; only the visible lines are painted, so a large file scrolls without lag. Files over 200 KB fall back to plain text and say so in the header, and an open in-file search keeps the colours behind its highlight.
 
 The editor shows a line-number gutter and highlights the caret's line. **Cmd/Ctrl+F** opens in-file search: every match is highlighted, the current one more strongly, with a match count, previous/next buttons, and a **Aa** case-sensitivity toggle. Enter and Shift+Enter step through matches, Escape closes the search and returns focus to the text.
+
+## Screenshots
+
+| | |
+| --- | --- |
+| ![Search by name](docs/media/screenshots/en/palette-search.png) | ![Browse the workspace](docs/media/screenshots/en/browse.png) |
+| **Search by name or path** | **Browse when the query is empty** |
+| ![Editor with syntax colours and in-file find](docs/media/screenshots/en/editor-find.png) | ![Built-in viewer](docs/media/screenshots/en/viewer.png) |
+| **Syntax colours, line numbers, in-file find** | **Built-in viewer for images, HTML, Markdown, video** |
+| ![Settings: three-way Open mode](docs/media/screenshots/en/settings.png) | ![Dark theme editor](docs/media/screenshots/dark/editor-dark.png) |
+| **One global Open mode over three surfaces** | **The same editor in the dark theme** |
 
 ## Install
 

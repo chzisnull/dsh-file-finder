@@ -21,11 +21,14 @@
     'palette-name',
     'palette-content',
     'palette-browse',
+    'browse-src',
     'palette-empty',
     'palette-loading',
     'editor',
     'editor-dirty',
     'editor-find',
+    'viewer',
+    'viewer-html',
     'settings',
   ]
   const CWD = '/workspace/dsh-file-finder'
@@ -194,6 +197,8 @@
     { path: `${CWD}/docs/guides/plugin-authoring/index.md`, name: 'index.md', score: 2 },
     { path: `${CWD}/scripts/build/index.mjs`, name: 'index.mjs', score: 2 },
     { path: `${CWD}/.github/ISSUE_TEMPLATE/index.yml`, name: 'index.yml', score: 2 },
+    { path: `${CWD}/docs/launch/dsh-file-finder-cover.png`, name: 'dsh-file-finder-cover.png', score: 0 },
+    { path: `${CWD}/docs/media/fixtures/demo.html`, name: 'demo.html', score: 0 },
   ]
 
   const CONTENT_RESULTS = [
@@ -203,7 +208,6 @@
       hits: [
         { line: 12, text: 'export function parseQuery(input, options = {}) {' },
         { line: 48, text: '  const parser = new QueryParser({ caseSensitive: options.caseSensitive })' },
-        { line: 96, text: '    // A duplicate keystroke can reach both the parser and the shortcut.' },
       ],
     },
     {
@@ -212,7 +216,6 @@
       hits: [
         { line: 7, text: 'export class QueryParser {' },
         { line: 33, text: '  parse(source: string): ParsedQuery {' },
-        { line: 64, text: '    const needle = caseSensitive ? source : source.toLowerCase()' },
       ],
     },
     {
@@ -220,30 +223,6 @@
       name: 'parser.test.ts',
       hits: [
         { line: 18, text: "  it('parses a bare filename query', () => {" },
-        { line: 55, text: '    expect(parser.hits).toHaveLength(2)' },
-      ],
-    },
-    {
-      path: `${CWD}/packages/server/src/http/routes/search.js`,
-      name: 'search.js',
-      hits: [
-        { line: 24, text: 'const parser = createBodyParser({ limit: 64 * 1024 })' },
-        { line: 71, text: '  const hits = parser(content, query, CONTENT_HITS_PER_FILE, prefs)' },
-      ],
-    },
-    {
-      path: `${CWD}/packages/client/ui-primitives/src/components/command-palette/fuzzy-parser.tsx`,
-      name: 'fuzzy-parser.tsx',
-      hits: [
-        { line: 41, text: 'export const fuzzyParser = (query: string) => (candidate: string) => {' },
-        { line: 88, text: '  return score > 0 ? { score, parser: "fuzzy" } : null' },
-      ],
-    },
-    {
-      path: `${CWD}/README.md`,
-      name: 'README.md',
-      hits: [
-        { line: 31, text: 'The content search uses the same parser as the agent tool.' },
       ],
     },
   ]
@@ -372,12 +351,17 @@ export function rankName(query, displayPath, options = {}) {
       }, 240)
     }
     if (path === '/dsh-file-finder/read') {
+      const readPath = String(body.path || `${CWD}/index.js`)
+      const image = /\.(png|jpe?g|webp|gif|avif)$/i.test(readPath)
+      const html = /\.html?$/i.test(readPath)
+      const text = image ? '' : EDITOR_TEXT
       return jsonResponse({
         ok: true,
-        path: body.path || `${CWD}/index.js`,
-        text: EDITOR_TEXT,
+        path: readPath,
+        text,
         version: '7',
-        bytes: EDITOR_TEXT.length,
+        bytes: text.length,
+        kind: image ? 'image' : html ? 'html' : 'text',
       }, 120)
     }
     if (path === '/dsh-file-finder/write') {
@@ -744,6 +728,24 @@ export function rankName(query, displayPath, options = {}) {
       return
     }
 
+    if (state === 'browse-src') {
+      await waitFor(
+        () => document.querySelectorAll('[data-dff-browse]').length > 0 && Boolean(document.querySelector('[data-dff-crumbs]')),
+        6000,
+        'the directory listing in the empty-query palette',
+      )
+      const folder = Array.from(document.querySelectorAll('[data-dff-browse]'))
+        .find((row) => /(^|\n)src($|\n)/.test(row.innerText || ''))
+      if (!folder) throw new Error('browse-src: no src folder row')
+      folder.click()
+      await waitFor(
+        () => /src/.test((document.querySelector('[data-dff-crumbs]') || {}).innerText || ''),
+        5000,
+        'the breadcrumb inside src',
+      )
+      return
+    }
+
     if (state === 'palette-loading') {
       const query = 'parser'
       await setQuery(query)
@@ -773,7 +775,7 @@ export function rankName(query, displayPath, options = {}) {
 
     const query = state === 'palette-empty' ? 'zzzznomatch'
       : state === 'editor' || state === 'editor-dirty' || state === 'editor-find' ? 'index'
-        : mode === 'content' ? 'parser' : 'index'
+        : mode === 'content' ? 'parse' : 'index'
     await setQuery(query)
 
     if (state === 'palette-empty') {
@@ -784,6 +786,34 @@ export function rankName(query, displayPath, options = {}) {
         const text = panel ? panel.innerText || '' : ''
         return /No matches|没有匹配结果|No results/i.test(text)
       }, 3000, 'the empty-state message after a query with no matches')
+      return
+    }
+
+    if (state === 'viewer-html') {
+      await setQuery('demo')
+      await waitForResults(1)
+      const target = pickAll(SELECTORS.result)[0]
+      if (!target) throw new Error('viewer-html: no result row for the html fixture')
+      target.click()
+      await waitFor(
+        () => document.querySelector('[data-dff-viewer] iframe'),
+        6000,
+        'the built-in HTML viewer',
+      )
+      return
+    }
+
+    if (state === 'viewer') {
+      await setQuery('cover')
+      await waitForResults(1)
+      const target = pickAll(SELECTORS.result)[0]
+      if (!target) throw new Error('viewer: no result row for the image fixture')
+      target.click()
+      await waitFor(
+        () => document.querySelector('[data-dff-viewer] img'),
+        6000,
+        'the built-in image viewer',
+      )
       return
     }
 

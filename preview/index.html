@@ -23,7 +23,7 @@
     // The editor state needs the writable Editor (the harness has no native
     // preview service); every other state keeps the real default.
     (function () {
-      var editorState = (location.hash || '') === '#editor' || (location.hash || '') === '#editor-dirty';
+      var editorState = ['#editor', '#editor-dirty', '#editor-find'].includes(location.hash || '');
       window.seedFileFinderSettings({
         extraIgnore: 'tmp, coverage',
         openMode: editorState ? 'editor' : 'native'
@@ -64,7 +64,7 @@
       <div class="app-sidebar-label">Plugins</div>
       <div class="app-nav-item">
         <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8.8" cy="8.8" r="4.6"/><path d="M12.2 12.2 16 16" stroke-linecap="round"/></svg>
-        File Finder<span class="app-badge">v0.1.1</span>
+        File Finder<span class="app-badge">v0.11.0</span>
       </div>
       <div class="app-sidebar-foot">
         <span class="app-avatar">C</span>

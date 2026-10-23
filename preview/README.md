@@ -62,6 +62,7 @@ http://127.0.0.1:<port>/preview/index.html?theme=light&motion=off#settings
 | `#palette-name` | palette opened in name mode, query `index` |
 | `#palette-content` | palette opened in content mode, query `parser` (13 hits) |
 | `#palette-browse` | palette opened with no query (workspace listing + breadcrumb) |
+| `#viewer` | the built-in image viewer on the launch cover fixture |
 | `#palette-empty` | query `zzzznomatch` (mock returns no rows) |
 | `#palette-loading` | query `parser`, but the mock search request never resolves |
 | `#editor` | name search, first result opened in the built-in editor |
