@@ -124,8 +124,12 @@ The same operations are available to the agent as the `file_finder` tool.
 ```sh
 node --check index.js
 node --check client.js
-npm test
+npm test          # pure logic + contracts, milliseconds
+npm run hooks     # git pre-push runs the same gate (`.githooks/`)
+npm run release   # bump, gate, publish, verify (see AGENTS.md)
 ```
+
+CI runs the same unit gate on every push and pull request.
 
 `npm test` covers the search helpers, the Desktop opener's host action and refusal list, the shortcut-default regression guard, and the UI contract (native preview address, palette hooks, reduced-motion rules, the DS Bot bridge, and the editor's line gutter, in-file find and syntax colours).
 

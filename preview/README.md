@@ -44,6 +44,26 @@ Each run rewrites `preview/shots/`:
 `preview/shots/manifest.json` records the `client.js` SHA-256, timings, dimensions, per-shot
 warnings, console errors and any failures. Hand the manifest to the reviewer with the PNGs.
 
+### Adding a capture state
+
+Three registrations move together, all in `screenshot.mjs`:
+
+1. `CAPTURES` — the key, the URL hash and the viewport;
+2. `REQUIRED_KEYS` — so a missing shot fails the run instead of quietly vanishing;
+3. `validateState()` — its own `case`, asserting the selectors and text that make
+   the state worth capturing. Skipping it still captures the shot, with a
+   `no dedicated validator` warning.
+
+Useful flags:
+
+```sh
+node preview/screenshot.mjs --list            # every capture key and its hash
+node preview/screenshot.mjs --only=session-board,session-region   # just these
+node preview/screenshot.mjs --only=session-board --thumb           # + CSS-pixel copies in shots/thumbs/
+```
+
+`--only` also narrows the required-state gate to the keys you asked for.
+
 ### Browse manually
 
 ```bash
@@ -207,6 +227,7 @@ preview/
   browse-check.mjs   directory browsing + Open-mode/kind surface checks (`npm run check:browse`)
   token-check.mjs    syntax colour / window / IME / large-file checks (`npm run check:tokens`)
   bot-check.mjs      DS Bot bridge checks (`npm run check:bot`)
+  fixtures/sessions.js  the one fake session dataset shared by mount.js and session-board-check.html
   session-board-check.mjs  sidebar counts + session board checks (`npm run check:board`)
   vendor/           React 18.3.1 UMD builds
   shots/            generated screenshots + manifest.json

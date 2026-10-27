@@ -414,97 +414,12 @@ export function rankName(query, displayPath, options = {}) {
     }
   }
 
-  const minutesAgo = (minutes) => Date.now() - minutes * 60_000
-  // Titles carry both languages so the shots read naturally in either.
-  const sessionRows = [
-    ['p1', { zh: '重构 auth 中间件', en: 'Refactor the auth middleware' }, '/workspace/dsh-file-finder', minutesAgo(4)],
-    ['p2', { zh: '发布 0.12.0 收尾', en: 'Finish the 0.12.0 release' }, '/workspace/dsh-file-finder', minutesAgo(11)],
-    ['p3', { zh: '数据库迁移方案', en: 'Database migration plan' }, '/workspace/api-server', minutesAgo(26)],
-    ['r1', { zh: '会话看板：区域计数', en: 'Session board: sidebar counts' }, '/workspace/dsh-file-finder', minutesAgo(2)],
-    ['r2', { zh: '视频素材裁剪', en: 'Trim the video footage' }, '/workspace/dsh-file-finder-video', minutesAgo(6)],
-    ['r3', { zh: 'CI 流水线排障', en: 'Pipelines: find the flaky job' }, '/workspace/api-server', minutesAgo(9)],
-    ['r4', { zh: '价格页文案', en: 'Pricing page copy' }, '/workspace/marketing-site', minutesAgo(13)],
-    ['r5', { zh: '依赖升级评估', en: 'Dependency upgrade review' }, '/workspace/dsh-file-finder', minutesAgo(18)],
-    ['d1', { zh: '截图重采', en: 'Re-shoot the screenshots' }, '/workspace/dsh-file-finder', minutesAgo(3)],
-    ['d2', { zh: 'npm 安装验证', en: 'Verify the npm install' }, '/workspace/dsh-file-finder', minutesAgo(12)],
-    ['blank', { zh: '', en: '' }, '/workspace/dsh-file-finder', minutesAgo(1)],
-    ['sub', { zh: 'Subagent: read files', en: 'Subagent: read files' }, '/workspace/dsh-file-finder', minutesAgo(1)],
-    ['old', { zh: '旧的一次实验', en: 'An old experiment' }, '/workspace/dsh-file-finder', minutesAgo(240)],
-    // Two subagents under r3: the CI session's own Agent is idle, they keep it
-    // in the running column and the card names the count.
-    ['sa1', { zh: 'Subagent: grep logs', en: 'Subagent: grep logs' }, '/workspace/api-server', minutesAgo(5)],
-    ['sa2', { zh: 'Subagent: rerun job', en: 'Subagent: rerun job' }, '/workspace/api-server', minutesAgo(4)],
-  ]
-  const sessionStatusRows = new Map([
-    ['p1', { running: false, pendingInteraction: { kind: 'approval' }, completionUnread: false }],
-    ['p2', { running: false, pendingInteraction: { kind: 'question' }, completionUnread: false }],
-    ['p3', { running: false, pendingInteraction: { kind: 'plan-review' }, completionUnread: false }],
-    ['r1', { running: true, pendingInteraction: undefined, completionUnread: false }],
-    ['r2', { running: true, pendingInteraction: undefined, completionUnread: false }],
-    ['r3', { running: true, pendingInteraction: undefined, completionUnread: false }],
-    ['r4', { running: true, pendingInteraction: undefined, completionUnread: false }],
-    ['r5', { running: true, pendingInteraction: undefined, completionUnread: false }],
-    ['d1', { running: false, pendingInteraction: undefined, completionUnread: true }],
-    ['d2', { running: false, pendingInteraction: undefined, completionUnread: true }],
-    ['blank', { running: false, pendingInteraction: undefined, completionUnread: false }],
-    ['sub', { running: true, pendingInteraction: undefined, completionUnread: false }],
-    ['old', { running: false, pendingInteraction: undefined, completionUnread: true }],
-    ['sa1', { running: true, pendingInteraction: undefined, completionUnread: false }],
-    ['sa2', { running: true, pendingInteraction: undefined, completionUnread: false }],
-  ])
-
-  const sessions = {
-    list: observable({
-      // Mirror the DSH snapshot shape: newest clients derive the live row
-      // from list.ids + retainedBy.mainView; older ones read list.current.
-      current: 'r1',
-      ids: sessionRows.map((row) => row[0]),
-      byId: Object.fromEntries(sessionRows.map(([id, title, cwd, updatedAt], index) => [id, {
-        id,
-        displayTitle: title[lang] || '',
-        cwd,
-        updatedAt,
-        blank: id === 'blank',
-        origin: id === 'sub' || id.startsWith('sa') ? 'subagent' : undefined,
-        parentId: id.startsWith('sa') ? 'r3' : undefined,
-        running: (id.startsWith('r') && id !== 'r3') || id === 'sub' || id.startsWith('sa'),
-        retainedBy: { mainView: index === 3 ? 1 : 0 },
-      }])),
-    }),
-  }
-  const uiSession = { sessionStatus: observable(sessionStatusRows) }
-  const workspaces = {
-    list: observable({
-      archivedSessionIds: ['old'],
-      // DSH's WorkspaceView: a title, a path, and the sessions it accounts for.
-      items: [
-        {
-          workspaceId: 'ws_file_finder',
-          path: '/workspace/dsh-file-finder',
-          title: lang === 'zh' ? '文件查找插件' : 'File Finder',
-          sessionIds: ['p1', 'p2', 'r1', 'r5', 'd1', 'd2', 'blank', 'sub', 'old'],
-        },
-        {
-          workspaceId: 'ws_api',
-          path: '/workspace/api-server',
-          title: lang === 'zh' ? '接口服务' : 'API server',
-          sessionIds: ['p3', 'r3'],
-        },
-        {
-          workspaceId: 'ws_video',
-          path: '/workspace/dsh-file-finder-video',
-          title: lang === 'zh' ? '宣传视频' : 'Promo video',
-          sessionIds: ['r2'],
-        },
-        {
-          workspaceId: 'ws_site',
-          path: '/workspace/marketing-site',
-          title: lang === 'zh' ? '官网' : 'Marketing site',
-          sessionIds: ['r4'],
-        },
-      ],
-    }),
-  }
+  // One dataset for every preview surface (preview/fixtures/sessions.js), so the
+  // screenshots and the browser checks cannot drift apart.
+  const fixture = window.dffSessionFixture.create({ lang })
+  const sessions = { list: observable(fixture.list) }
+  const uiSession = { sessionStatus: observable(fixture.statuses) }
+  const workspaces = { list: observable(fixture.workspaces) }
   const uiWorkspace = { openSession() {} }
 
   function makeT(namespace) {

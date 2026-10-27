@@ -1,0 +1,7 @@
+#!/bin/sh
+# Fast gate on every push: unit tests and the syntax check. Browser checks need
+# Playwright and are run by hand with `npm run check:*`.
+set -e
+node --check index.js
+node --check client.js
+npm test

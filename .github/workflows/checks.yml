@@ -1,0 +1,27 @@
+name: checks
+
+# Unit tests and the syntax check only. The browser checks (check:board,
+# check:browse, check:find, check:intel, check:tokens, check:viewer, check:bot)
+# and the screenshot harness need Playwright plus a theme bundle extracted from an
+# installed DSH, so they stay local: `npm run check:*` / `npm run preview`.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntax
+        run: |
+          node --check index.js
+          node --check client.js
+          node --check preview/screenshot.mjs
+          node --check scripts/release.mjs
+      - name: Unit tests
+        run: npm test

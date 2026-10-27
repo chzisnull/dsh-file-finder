@@ -125,8 +125,12 @@ dsh plugin add /Library/aiProject/dsh-file-finder
 ```sh
 node --check index.js
 node --check client.js
-npm test
+npm test          # 纯逻辑与契约，几十毫秒
+npm run hooks     # 让 git pre-push 跑同一道闸门（`.githooks/`）
+npm run release   # 升版本、跑闸门、发布、验证（详见 AGENTS.md）
 ```
+
+CI 在每次 push / PR 上跑同一道单测闸门。
 
 `npm test` 覆盖搜索函数、快捷键默认值的防回归测试，以及 UI 契约（原生预览地址、面板钩子、reduced-motion 规则、DS Bot 桥接，以及编辑器的行号栏、文件内查找与语法着色）。
 

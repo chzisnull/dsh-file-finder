@@ -5662,6 +5662,17 @@ window.__ModuleLoader__.load({
       // Only services every Web shell always provides: a missing optional one
       // must never hold up (or take down) the rest of the boot.
       inject: ['slots', 'locale'],
+      // Fast unit-test seam: the board's derivations are pure, so node:test can
+      // pin them without a browser. Nothing in the shell reads this key.
+      __test: {
+        SESSION_STATE,
+        sessionRowsOf,
+        sessionCountsOf,
+        boardColumnsOf,
+        indexSubagentRollup,
+        pendingKeyOf,
+        ageText,
+      },
       apply(ctx) {
         try {
           start(ctx)

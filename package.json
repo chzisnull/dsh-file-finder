@@ -34,12 +34,14 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test test/search.test.mjs test/raw-route.test.mjs test/list-route.test.mjs test/open-route.test.mjs test/boot-safety.test.mjs test/ui-contract.test.mjs",
+    "test": "node --test test/search.test.mjs test/raw-route.test.mjs test/list-route.test.mjs test/open-route.test.mjs test/session-board.test.mjs test/boot-safety.test.mjs test/ui-contract.test.mjs",
     "preview": "node preview/screenshot.mjs",
     "check:bot": "node preview/bot-check.mjs",
     "check:find": "node preview/find-check.mjs",
     "check:viewer": "node preview/viewer-check.mjs",
     "check:board": "node preview/session-board-check.mjs",
+    "release": "node scripts/release.mjs",
+    "hooks": "git config core.hooksPath .githooks",
     "check:tokens": "node preview/token-check.mjs",
     "check:browse": "node preview/browse-check.mjs",
     "check:intel": "node preview/intel-check.mjs"

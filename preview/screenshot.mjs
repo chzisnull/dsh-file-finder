@@ -31,6 +31,7 @@ import process from 'node:process'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = resolve(HERE, '..')
 const SHOTS_DIR = join(HERE, 'shots')
+const THUMBS_DIR = join(SHOTS_DIR, 'thumbs')
 const THEME_SCRIPT = join(HERE, 'extract-theme.mjs')
 const CLIENT_FILE = join(PROJECT_ROOT, 'client.js')
 const THEME_SUFFIX = 'node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-client-ui-theme/lib/client.js'
@@ -437,8 +438,15 @@ function validateState(stateKey, info, pushWarning) {
       if (info.controlCount < 4) pushWarning(`only ${info.controlCount} interactive controls on the settings page`)
       break
     }
-    default:
-      fail(`unknown preview state "${stateKey}"`)
+    default: {
+      // A state without its own validator still gets the generic checks: some
+      // surface must have rendered, and the warning keeps the gap visible.
+      if (!info.hasPanel && !info.hasRegion && !info.hasBoard && !info.hasSettings && !info.hasEditor) {
+        fail(`state "${stateKey}" rendered none of the known surfaces`)
+      }
+      pushWarning(`no dedicated validator for state "${stateKey}"`)
+      break
+    }
   }
 
   if (info.documentOverflowX > 2) {
@@ -588,9 +596,30 @@ function printTable(rows, failures) {
 
 async function main() {
   const args = new Set(process.argv.slice(2))
+  const onlyArg = process.argv.slice(2).find((value) => value.startsWith('--only='))
+  const only = onlyArg
+    ? new Set(onlyArg.slice('--only='.length).split(',').map((key) => key.trim()).filter(Boolean))
+    : null
+  const thumb = args.has('--thumb')
   if (args.has('--help') || args.has('-h')) {
-    console.log('usage: node preview/screenshot.mjs [--serve] [--help]')
+    console.log('usage: node preview/screenshot.mjs [--serve] [--only=<key,key>] [--thumb] [--list] [--help]')
+    console.log('  --only   render just these states (the required-state gate then covers only them)')
+    console.log('  --thumb  also write a CSS-pixel copy under preview/shots/thumbs/ for review')
+    console.log('  --list   print every capture key and exit')
     return
+  }
+  if (args.has('--list')) {
+    for (const spec of [...CAPTURES, MOTION_CAPTURE]) console.log(`${spec.key}\t#${spec.hash}`)
+    return
+  }
+  if (only) {
+    const known = new Set([...CAPTURES, MOTION_CAPTURE].map((spec) => spec.key))
+    const unknown = [...only].filter((key) => !known.has(key))
+    if (unknown.length) {
+      console.error(`unknown state(s): ${unknown.join(', ')} — run --list to see the keys`)
+      process.exitCode = 1
+      return
+    }
   }
 
   console.log('[setup] regenerating preview/theme.css from the installed DSH theme bundle')
@@ -638,8 +667,8 @@ async function main() {
         // actually run, so the context must not force reduced motion.
         reducedMotion: 'no-preference',
       })
-      const captures = [...CAPTURES]
-      if (theme === 'light') captures.push(MOTION_CAPTURE)
+      const captures = CAPTURES.filter((spec) => !only || only.has(spec.key))
+      if (theme === 'light' && (!only || only.has(MOTION_CAPTURE.key))) captures.push(MOTION_CAPTURE)
 
       for (const spec of captures) {
         if (spec.theme && spec.theme !== theme) continue
@@ -654,6 +683,11 @@ async function main() {
           })
           const file = `${spec.key}-${theme}.png`
           await writeFile(join(SHOTS_DIR, file), capture.buffer)
+          if (thumb) {
+            // A CSS-pixel copy for quick review: the 2x originals stay untouched.
+            await mkdir(THUMBS_DIR, { recursive: true })
+            await page.screenshot({ path: join(THUMBS_DIR, file), scale: 'css', animations: 'disabled' })
+          }
           rows.push({
             key: spec.key,
             theme,
@@ -687,7 +721,8 @@ async function main() {
   printTable(rows, failures)
 
   const capturedKeys = new Set(rows.map((row) => row.key))
-  const missing = REQUIRED_KEYS.filter((key) => !capturedKeys.has(key))
+  const requiredKeys = only ? [...only] : REQUIRED_KEYS
+  const missing = requiredKeys.filter((key) => !capturedKeys.has(key))
   const clientAfter = await readClientFingerprint()
   const manifest = {
     generatedAt: new Date().toISOString(),
