@@ -131,8 +131,6 @@ window.__ModuleLoader__.load({
         boardFinished: '已完成',
         boardEmpty: '这一类现在是空的',
         boardNoMatch: '没有匹配的会话',
-        boardFiltered: '只看「{state}」',
-        boardClearFilter: '显示全部',
         boardMore: '共 {count} 条',
         boardCounts: '{pending} 待确认 · {running} 进行中 · {finished} 已完成',
         boardOpenSession: '打开会话 {title}',
@@ -302,8 +300,6 @@ window.__ModuleLoader__.load({
         boardFinished: 'Finished',
         boardEmpty: 'Nothing in this column',
         boardNoMatch: 'No session matches',
-        boardFiltered: 'Only “{state}”',
-        boardClearFilter: 'Show all',
         boardMore: '{count} in total',
         boardCounts: '{pending} awaiting you · {running} running · {finished} finished',
         boardOpenSession: 'Open session {title}',
@@ -3939,10 +3935,9 @@ window.__ModuleLoader__.load({
       [SESSION_STATE.FINISHED]: { board: 'boardFinished', region: 'regionFinished' },
     }
     const BOARD_ROW_CAP = 50
-    const BOARD_FILTER_ALL = 'all'
 
     const boardStore = {
-      state: { open: false, filter: BOARD_FILTER_ALL },
+      state: { open: false },
       listeners: new Set(),
       snapshot() { return boardStore.state },
       subscribe(listener) {
@@ -3950,22 +3945,19 @@ window.__ModuleLoader__.load({
         return () => boardStore.listeners.delete(listener)
       },
       emit() { boardStore.listeners.forEach((listener) => listener()) },
-      open(filter) {
-        boardStore.state = { open: true, filter: filter || BOARD_FILTER_ALL }
+      open() {
+        if (boardStore.state.open) return
+        boardStore.state = { open: true }
         boardStore.emit()
       },
       close() {
         if (!boardStore.state.open) return
-        boardStore.state = { open: false, filter: BOARD_FILTER_ALL }
+        boardStore.state = { open: false }
         boardStore.emit()
       },
-      toggle(filter) {
+      toggle() {
         if (boardStore.state.open) boardStore.close()
-        else boardStore.open(filter || BOARD_FILTER_ALL)
-      },
-      setFilter(filter) {
-        boardStore.state = { open: true, filter: filter || BOARD_FILTER_ALL }
-        boardStore.emit()
+        else boardStore.open()
       },
     }
 
@@ -4035,7 +4027,7 @@ window.__ModuleLoader__.load({
     // Columns are filtered by the region's pill and by the search box, then
     // ordered for their own job: the longest wait first, the newest activity
     // first, the newest completion first.
-    function boardColumnsOf(rows, filter, query) {
+    function boardColumnsOf(rows, query) {
       const needle = String(query || '').trim().toLowerCase()
       const matched = needle
         ? rows.filter((row) => row.title.toLowerCase().includes(needle)
@@ -4043,7 +4035,6 @@ window.__ModuleLoader__.load({
         : rows
       const columns = []
       for (const state of SESSION_COLUMNS) {
-        if (filter !== BOARD_FILTER_ALL && filter !== state) continue
         const column = matched.filter((row) => row.state === state)
         // Awaiting: the longest wait first. Running and finished: the most
         // recent activity first — DSH exposes no completion timestamp, so
@@ -4125,7 +4116,7 @@ window.__ModuleLoader__.load({
         disabled: counts[state] === 0,
         title: `${t(SESSION_STATE_COPY[state].region)} ${counts[state]}`,
         'aria-label': `${t(SESSION_STATE_COPY[state].region)} ${counts[state]}`,
-        onClick: () => boardStore.open(state),
+        onClick: () => boardStore.open(),
       },
       h('span', { className: 'dff-region-dot', 'aria-hidden': 'true' }),
       h('span', { className: 'dff-region-label' }, t(SESSION_STATE_COPY[state].region)),
@@ -4140,7 +4131,6 @@ window.__ModuleLoader__.load({
       const request = useSyncExternalStore(boardStore.subscribe, boardStore.snapshot, boardStore.snapshot)
       const presence = usePresence(request.open, 140)
       const rows = useSessionRows(ctx)
-      const counts = useMemo(() => sessionCountsOf(rows), [rows])
       const [query, setQuery] = useState('')
       const inputRef = useRef(null)
 
@@ -4176,7 +4166,7 @@ window.__ModuleLoader__.load({
 
       if (!settings.enabled || !presence.mounted) return null
 
-      const columns = boardColumnsOf(rows, request.filter, query)
+      const columns = boardColumnsOf(rows, query)
       const stateLabel = (state) => t(SESSION_STATE_COPY[state].board)
 
       function openSessionRow(id) {
@@ -4206,8 +4196,7 @@ window.__ModuleLoader__.load({
         },
         h('header', { className: 'dff-board-head' },
           h('div', { className: 'dff-board-title' },
-            h('strong', null, t('boardTitle')),
-            h('span', null, textOf(t, 'boardCounts', counts))),
+            h('strong', null, t('boardTitle'))),
           h('div', { className: 'dff-board-tools' },
             h('label', { className: 'dff-board-search' },
               h(SearchIcon, { size: 14 }),
@@ -4225,13 +4214,6 @@ window.__ModuleLoader__.load({
               type: 'button', className: 'dff-icon-btn', 'aria-label': t('close'),
               onClick: () => boardStore.close(),
             }, h(CloseIcon, { size: 16 })))),
-        request.filter === BOARD_FILTER_ALL ? null : h('div', { className: 'dff-board-chiprow' },
-          h('span', { className: 'dff-board-chip' },
-            textOf(t, 'boardFiltered', { state: stateLabel(request.filter) })),
-          h('button', {
-            type: 'button', className: 'dff-board-chip is-action',
-            onClick: () => boardStore.setFilter(BOARD_FILTER_ALL),
-          }, t('boardClearFilter'))),
         h('div', { className: 'dff-board-cols', 'data-columns': String(columns.length) },
           columns.map((column) => h('section', {
             key: column.state,
@@ -5580,7 +5562,13 @@ window.__ModuleLoader__.load({
         overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       }
       .dff-board-age { margin-left: auto; flex: none; }
-      .dff-board-empty { margin: 4px 2px 12px; color: var(--dsw-alias-label-tertiary); font-size: 11.5px; }
+      .dff-board-empty {
+        flex: 1; display: flex; align-items: center; justify-content: center;
+        min-height: 96px; margin: 0 9px 9px; padding: 18px 12px;
+        border: 1px dashed var(--dsw-alias-border-l2); border-radius: 10px;
+        color: var(--dsw-alias-label-tertiary);
+        font-size: 11.5px; line-height: 17px; text-align: center;
+      }
       .dff-board-more { margin: 0 2px 10px; color: var(--dsw-alias-label-tertiary); font-size: 10.5px; }
 
       @media (max-width: 1080px) {
@@ -5663,7 +5651,7 @@ window.__ModuleLoader__.load({
                 'sessions.board',
                 () => t('shortcutBoard'),
                 ['session board', 'sessions', '会话看板', '看板'],
-                () => { if (prefs.state.sessionBoard.enabled) boardStore.toggle(BOARD_FILTER_ALL) },
+                () => { if (prefs.state.sessionBoard.enabled) boardStore.toggle() },
               )))
               if (botReady) {
                 scoped.effect(() => register(shortcut(
@@ -5689,7 +5677,7 @@ window.__ModuleLoader__.load({
               if (!settings.enabled || !settings.shortcut) return
               event.preventDefault()
               event.stopPropagation()
-              boardStore.toggle(BOARD_FILTER_ALL)
+              boardStore.toggle()
             }
             document.addEventListener('keydown', onBoardKey, true)
             return () => document.removeEventListener('keydown', onBoardKey, true)

@@ -179,14 +179,14 @@
       region().querySelector('[data-state="pending"]').click()
       await waitFor(board)
       check('a pill opens the board', Boolean(board()))
-      check('a pill opens the board filtered to its state', columns().length === 1 && columns()[0].getAttribute('data-state') === 'pending',
+      check('a pill opens every column, never a pre-filtered one', columns().length === 3,
         columns().map(function (c) { return c.getAttribute('data-state') }).join(','))
-      var rows = board().querySelectorAll('[data-dff-board-row]')
+      check('the board header carries no counts of its own', !board().querySelector('.dff-board-title span'))
+      var rows = board().querySelectorAll('[data-state="pending"] [data-dff-board-row]')
       check('the pending column lists every waiting session', rows.length === 3, rows.length)
       check('the longest wait comes first', rows.length === 3 && rows[0].getAttribute('data-dff-board-row') === 'p3',
         rows.length ? rows[0].getAttribute('data-dff-board-row') : '')
       check('a waiting row names the reason', text(rows[0]).indexOf('pendingPlan') >= 0, text(rows[0]))
-      check('the filter is visible and clearable', text(board()).indexOf('boardFiltered') >= 0)
 
       // ── Navigating from a row ─────────────────────────────────────────────
       rows[0].click()

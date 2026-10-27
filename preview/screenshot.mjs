@@ -312,7 +312,6 @@ function collectInfo() {
     boardCols: document.querySelectorAll('[data-dff-board-col]').length,
     boardRows: document.querySelectorAll('[data-dff-board-row]').length,
     boardRect: rectOf(document.querySelector('[data-dff-board]')),
-    boardSubtitle: (document.querySelector('.dff-board-title span') || {}).textContent || '',
     headingCount: document.querySelectorAll('h1, h2, h3').length,
     controlCount: document.querySelectorAll('button, input, select, textarea').length,
     mode,
@@ -426,7 +425,6 @@ function validateState(stateKey, info, pushWarning) {
       if (!info.hasBoard) fail('the session board did not open on the shortcut')
       if (info.boardCols !== 3) fail(`expected three board columns, found ${info.boardCols}`)
       if (info.boardRows < 8) fail(`board looks empty (${info.boardRows} rows)`)
-      if (/·\s*·/.test(info.boardSubtitle)) fail(`the board subtitle lost a count: "${info.boardSubtitle}"`)
       if (info.documentOverflowX > 2) fail('the board overflows horizontally')
       break
     }

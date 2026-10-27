@@ -332,7 +332,9 @@ test('the session board is an additive sidebar and overlay surface', () => {
   assert.match(source, /origin === 'subagent'/)
   assert.match(source, /archivedSessionIds/)
   assert.match(source, /if \(!summary \|\| summary\.blank\) continue/)
-  assert.match(source, /BOARD_FILTER_ALL/)
+  // A pill opens the whole board: no pre-filter state, no filter chip row.
+  assert.match(source, /onClick: \(\) => boardStore\.open\(\)/)
+  assert.doesNotMatch(source, /setFilter|boardFiltered|boardClearFilter/)
   // Defaults and the three switches live in the normalised preference object.
   assert.match(source, /DEFAULT_SESSION_BOARD = \{ enabled: true, region: true, shortcut: true \}/)
   assert.match(source, /normalizeSessionBoard/)
