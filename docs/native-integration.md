@@ -934,6 +934,15 @@ running → finished → idle. That is DSH's own precedence in `ui-workspace`
 (`sessionStatuses()`), so the counts cannot disagree with the dots in the
 session list.
 
+**Subagent rollup.** Subagent sessions carry `origin: 'subagent'` and a
+`parentId`; they never become rows. Their `running`/`pendingInteraction` facts
+bubble up the chain — the same walk `indexSubagentDescendants` in
+`ui-workspace` performs for its "N subagents running" label — so a parent whose
+own Agent stopped but whose subagents still work reads as running, and a parent
+with a subagent waiting for approval reads as awaiting. DSH itself shows these
+as two facts (parent dot plus subagent label); with only three counters we merge
+them, and the row keeps the label (`2 subagents`, `a subagent needs you`).
+
 **`completionUnread` is client-only.** It is a per-page `Set` in
 `ui-session`: a session is added when a running Agent stops while the user is
 elsewhere, and removed when that session becomes the main view or the page

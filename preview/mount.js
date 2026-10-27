@@ -430,6 +430,10 @@ export function rankName(query, displayPath, options = {}) {
     ['blank', { zh: '', en: '' }, '/workspace/dsh-file-finder', minutesAgo(1)],
     ['sub', { zh: 'Subagent: read files', en: 'Subagent: read files' }, '/workspace/dsh-file-finder', minutesAgo(1)],
     ['old', { zh: '旧的一次实验', en: 'An old experiment' }, '/workspace/dsh-file-finder', minutesAgo(240)],
+    // Two subagents under r3: the CI session's own Agent is idle, they keep it
+    // in the running column and the card names the count.
+    ['sa1', { zh: 'Subagent: grep logs', en: 'Subagent: grep logs' }, '/workspace/api-server', minutesAgo(5)],
+    ['sa2', { zh: 'Subagent: rerun job', en: 'Subagent: rerun job' }, '/workspace/api-server', minutesAgo(4)],
   ]
   const sessionStatusRows = new Map([
     ['p1', { running: false, pendingInteraction: { kind: 'approval' }, completionUnread: false }],
@@ -445,6 +449,8 @@ export function rankName(query, displayPath, options = {}) {
     ['blank', { running: false, pendingInteraction: undefined, completionUnread: false }],
     ['sub', { running: true, pendingInteraction: undefined, completionUnread: false }],
     ['old', { running: false, pendingInteraction: undefined, completionUnread: true }],
+    ['sa1', { running: true, pendingInteraction: undefined, completionUnread: false }],
+    ['sa2', { running: true, pendingInteraction: undefined, completionUnread: false }],
   ])
 
   const sessions = {
@@ -459,8 +465,9 @@ export function rankName(query, displayPath, options = {}) {
         cwd,
         updatedAt,
         blank: id === 'blank',
-        origin: id === 'sub' ? 'subagent' : undefined,
-        running: id.startsWith('r') || id === 'sub',
+        origin: id === 'sub' || id.startsWith('sa') ? 'subagent' : undefined,
+        parentId: id.startsWith('sa') ? 'r3' : undefined,
+        running: (id.startsWith('r') && id !== 'r3') || id === 'sub' || id.startsWith('sa'),
         retainedBy: { mainView: index === 3 ? 1 : 0 },
       }])),
     }),

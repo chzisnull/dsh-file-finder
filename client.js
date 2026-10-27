@@ -138,6 +138,8 @@ window.__ModuleLoader__.load({
         pendingQuestion: '等你回答',
         pendingPlan: '计划待审阅',
         pendingOther: '等你处理',
+        pendingSubagent: '子代理等你处理',
+        subagentCount: '{count} 个子代理',
         ageNow: '刚刚',
         ageMinute: '{count} 分钟前',
         ageHour: '{count} 小时前',
@@ -307,6 +309,8 @@ window.__ModuleLoader__.load({
         pendingQuestion: 'waiting for your answer',
         pendingPlan: 'plan needs review',
         pendingOther: 'waiting for you',
+        pendingSubagent: 'a subagent needs you',
+        subagentCount: '{count} subagents',
         ageNow: 'just now',
         ageMinute: '{count} min ago',
         ageHour: '{count} h ago',
@@ -3973,6 +3977,7 @@ window.__ModuleLoader__.load({
     }
 
     function pendingKeyOf(kind) {
+      if (kind === 'subagent') return 'pendingSubagent'
       if (kind === 'approval') return 'pendingApproval'
       if (kind === 'question') return 'pendingQuestion'
       if (kind === 'plan-review') return 'pendingPlan'
@@ -3981,6 +3986,39 @@ window.__ModuleLoader__.load({
 
     // One row per Session the user owns: blank placeholders, archived rows and
     // subagent sessions are not things to act on, so they never enter a count.
+    // A subagent never becomes its own count: it bubbles up into the session it
+    // belongs to, along the same `parentId` chain DSH's own session list walks
+    // for its "N subagents running" label. One session therefore stays one
+    // count, whether one Agent or ten are working underneath it.
+    function indexSubagentRollup(list, statuses) {
+      const byId = list && list.byId ? list.byId : {}
+      const statusOf = (id) => (statuses && typeof statuses.get === 'function' ? statuses.get(id) : undefined)
+      const runningOf = (summary) => {
+        const status = statusOf(summary.id)
+        return status && typeof status.running === 'boolean' ? status.running : Boolean(summary.running)
+      }
+      const rollup = new Map()
+      for (const descendant of Object.values(byId)) {
+        if (!descendant || descendant.origin !== 'subagent') continue
+        const running = runningOf(descendant)
+        const status = statusOf(descendant.id)
+        const pending = Boolean(status && status.pendingInteraction)
+        const seen = new Set()
+        let current = descendant
+        while (current && current.origin === 'subagent'
+          && current.parentId !== undefined && !seen.has(current.id)) {
+          seen.add(current.id)
+          const aggregate = rollup.get(current.parentId) || { count: 0, running: 0, pending: 0 }
+          aggregate.count += 1
+          if (running) aggregate.running += 1
+          if (pending) aggregate.pending += 1
+          rollup.set(current.parentId, aggregate)
+          current = byId[current.parentId]
+        }
+      }
+      return rollup
+    }
+
     function workspaceTitlesOf(workspaceList) {
       const titles = new Map()
       const items = workspaceList && Array.isArray(workspaceList.items) ? workspaceList.items : []
@@ -3991,7 +4029,7 @@ window.__ModuleLoader__.load({
       return titles
     }
 
-    function sessionRowsOf(list, statuses, archivedIds, workspaceTitles) {
+    function sessionRowsOf(list, statuses, archivedIds, workspaceTitles, rollup) {
       const ids = list && Array.isArray(list.ids) ? list.ids : []
       const byId = list && list.byId ? list.byId : {}
       const archived = new Set(Array.isArray(archivedIds) ? archivedIds : [])
@@ -4002,7 +4040,19 @@ window.__ModuleLoader__.load({
         if (summary.origin === 'subagent') continue
         if (archived.has(id)) continue
         const status = statuses && typeof statuses.get === 'function' ? statuses.get(id) : undefined
-        const pending = status && status.pendingInteraction ? String(status.pendingInteraction.kind || '') : ''
+        const subagents = rollup && rollup.get(id)
+        const ownPending = status && status.pendingInteraction
+          ? String(status.pendingInteraction.kind || '')
+          : ''
+        // A waiting subagent is the same kind of fact as a waiting main Agent:
+        // without this an approval raised inside a subagent is invisible
+        // everywhere, because subagents own no row of their own.
+        const pending = ownPending || (subagents && subagents.pending > 0 ? 'subagent' : '')
+        let state = SESSION_STATE.IDLE
+        if (pending) state = SESSION_STATE.PENDING
+        else if (sessionStateOf(summary, status) === SESSION_STATE.RUNNING
+          || (subagents && subagents.running > 0)) state = SESSION_STATE.RUNNING
+        else if (status && status.completionUnread === true) state = SESSION_STATE.FINISHED
         rows.push({
           id,
           title: String(summary.displayTitle || summary.title || id),
@@ -4011,8 +4061,9 @@ window.__ModuleLoader__.load({
           workspace: (workspaceTitles && workspaceTitles.get(id))
             || baseName(String(summary.cwd || '').replace(/[\\/]+$/, '')),
           updatedAt: Number(summary.updatedAt) || 0,
-          state: sessionStateOf(summary, status),
+          state,
           pending,
+          subagents: subagents ? subagents.running : 0,
         })
       }
       return rows
@@ -4084,9 +4135,10 @@ window.__ModuleLoader__.load({
       const workspaceList = useObservable(workspaces && workspaces.list)
       const archivedIds = workspaceList ? workspaceList.archivedSessionIds : undefined
       const workspaceTitles = useMemo(() => workspaceTitlesOf(workspaceList), [workspaceList])
+      const rollup = useMemo(() => indexSubagentRollup(list, statuses), [list, statuses])
       return useMemo(
-        () => sessionRowsOf(list, statuses, archivedIds, workspaceTitles),
-        [list, statuses, archivedIds, workspaceTitles],
+        () => sessionRowsOf(list, statuses, archivedIds, workspaceTitles, rollup),
+        [list, statuses, archivedIds, workspaceTitles, rollup],
       )
     }
 
@@ -4239,6 +4291,9 @@ window.__ModuleLoader__.load({
             h('span', { className: 'dff-board-meta' },
               row.workspace ? h('span', { className: 'dff-board-ws' }, row.workspace) : null,
               row.state === SESSION_STATE.PENDING ? h('span', null, t(pendingKeyOf(row.pending))) : null,
+              row.subagents
+                ? h('span', { className: 'dff-board-sub' }, textOf(t, 'subagentCount', { count: row.subagents }))
+                : null,
               h('span', { className: 'dff-board-age' }, ageText(row.updatedAt, t))))))
             : h('p', { className: 'dff-board-empty' }, query ? t('boardNoMatch') : t('boardEmpty')),
           column.total > column.rows.length
@@ -5560,6 +5615,11 @@ window.__ModuleLoader__.load({
         max-width: 60%; padding: 1px 5px; border-radius: 4px;
         background: var(--dsw-alias-bg-module-platform);
         overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      .dff-board-sub {
+        flex: none; padding: 1px 5px; border-radius: 4px;
+        background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 11%, transparent);
+        color: var(--dsw-alias-state-business-primary);
       }
       .dff-board-age { margin-left: auto; flex: none; }
       .dff-board-empty {

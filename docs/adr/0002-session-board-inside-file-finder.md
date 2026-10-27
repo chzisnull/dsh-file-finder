@@ -44,6 +44,12 @@ directly instead of inventing a state of its own.
   sessions and subagent sessions.
 - Rows show DSH's Workspace title when the session belongs to one (falling back
   to the cwd folder name), and the search matches title and workspace.
+- Subagents are rolled up into their parent along the `parentId` chain: a
+  running subagent keeps the parent in "running", a waiting subagent moves it to
+  "awaiting", and the parent counts once. Without the second half, an approval
+  raised inside a subagent would be invisible in every surface, because
+  subagents own no row of their own. The consequence is deliberate: "finished"
+  now means the whole tree settled, not just the main Agent.
 - Column order is a proxy: awaiting sessions are sorted by the oldest
   `updatedAt` (longest wait), running and finished by the newest. DSH exposes no
   completion timestamp, so "newest completion" is really "newest activity".

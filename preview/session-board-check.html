@@ -54,17 +54,24 @@
 
     // Three states DSH models, plus the three rows that must never be counted.
     var sessions = observable({
-      ids: ['p1', 'p2', 'p3', 'r1', 'r2', 'd1', 'd2', 'blank', 'sub', 'archived'],
+      ids: ['p1', 'p2', 'p3', 'p4', 'r1', 'r2', 'r3', 'd1', 'd2', 'blank', 'sub', 'sa1', 'sa2', 'sa3', 'archived'],
       byId: {
         p1: { id: 'p1', displayTitle: '重构 auth 中间件', cwd: '/w/dsh-file-finder', updatedAt: secondsAgo(240), blank: false, running: false },
         p2: { id: 'p2', displayTitle: '发布 0.12.0 收尾', cwd: '/w/dsh-file-finder', updatedAt: secondsAgo(600), blank: false, running: false },
         p3: { id: 'p3', displayTitle: '数据库迁移方案', cwd: '/w/api-server', updatedAt: secondsAgo(1800), blank: false, running: false },
         r1: { id: 'r1', displayTitle: '会话看板：区域计数', cwd: '/w/dsh-file-finder', updatedAt: secondsAgo(30), blank: false, running: true },
         r2: { id: 'r2', displayTitle: 'CI 流水线排障', cwd: '/w/api-server', updatedAt: secondsAgo(90), blank: false, running: true },
+        p4: { id: 'p4', displayTitle: '依赖审计', cwd: '/w/api-server', updatedAt: secondsAgo(300), blank: false, running: false },
         d1: { id: 'd1', displayTitle: '截图重采', cwd: '/w/dsh-file-finder', updatedAt: secondsAgo(180), blank: false, running: false },
         d2: { id: 'd2', displayTitle: 'npm 安装验证', cwd: '/w/dsh-file-finder', updatedAt: secondsAgo(720), blank: false, running: false },
         blank: { id: 'blank', displayTitle: '', cwd: '/w/dsh-file-finder', updatedAt: secondsAgo(10), blank: true, running: false },
-        sub: { id: 'sub', displayTitle: 'Subagent: read files', cwd: '/w/dsh-file-finder', updatedAt: secondsAgo(20), blank: false, running: true, origin: 'subagent' },
+        // r3's own Agent is idle; two subagents keep it running.
+        r3: { id: 'r3', displayTitle: '构建队列排障', cwd: '/w/api-server', updatedAt: secondsAgo(70), blank: false, running: false },
+        // p4's own Agent is idle; a subagent is waiting for approval.
+        sub: { id: 'sub', displayTitle: 'Subagent: read files', cwd: '/w/dsh-file-finder', updatedAt: secondsAgo(20), blank: false, running: true, origin: 'subagent' }, // orphan, must create no row
+        sa1: { id: 'sa1', displayTitle: 'Subagent: grep logs', cwd: '/w/api-server', updatedAt: secondsAgo(60), blank: false, running: true, origin: 'subagent', parentId: 'r3' },
+        sa2: { id: 'sa2', displayTitle: 'Subagent: rerun job', cwd: '/w/api-server', updatedAt: secondsAgo(50), blank: false, running: true, origin: 'subagent', parentId: 'r3' },
+        sa3: { id: 'sa3', displayTitle: 'Subagent: audit lockfile', cwd: '/w/api-server', updatedAt: secondsAgo(40), blank: false, running: false, origin: 'subagent', parentId: 'p4' },
         archived: { id: 'archived', displayTitle: 'Old session', cwd: '/w/dsh-file-finder', updatedAt: secondsAgo(7200), blank: false, running: false },
       },
       phase: 'ready',
@@ -76,6 +83,11 @@
       ['p3', { running: false, pendingInteraction: { kind: 'plan-review' }, completionUnread: false }],
       ['r1', { running: true, pendingInteraction: undefined, completionUnread: false }],
       ['r2', { running: true, pendingInteraction: undefined, completionUnread: false }],
+      ['p4', { running: false, pendingInteraction: undefined, completionUnread: false }],
+      ['r3', { running: false, pendingInteraction: undefined, completionUnread: false }],
+      ['sa1', { running: true, pendingInteraction: undefined, completionUnread: false }],
+      ['sa2', { running: true, pendingInteraction: undefined, completionUnread: false }],
+      ['sa3', { running: false, pendingInteraction: { kind: 'approval' }, completionUnread: false }],
       ['d1', { running: false, pendingInteraction: undefined, completionUnread: true }],
       ['d2', { running: false, pendingInteraction: undefined, completionUnread: true }],
       ['blank', { running: false, pendingInteraction: undefined, completionUnread: false }],
@@ -166,14 +178,36 @@
       check('the region renders one pill per state', pills.length === 3, pills.length)
       var counts = {}
       Array.prototype.forEach.call(pills, function (pill) { counts[pill.getAttribute('data-state')] = pill.getAttribute('data-count') })
-      check('pending counts only sessions awaiting the user', counts.pending === '3', counts.pending)
-      check('running counts only live sessions', counts.running === '2', counts.running)
+      check('pending counts only sessions awaiting the user', counts.pending === '4', counts.pending)
+      check('running counts only live sessions', counts.running === '3', counts.running)
       check('finished counts only unread completions', counts.finished === '2', counts.finished)
       // The three numbers add up to the seven actionable sessions only: the
       // blank row, the subagent row and the archived row contribute nothing.
       check('blank, subagent and archived sessions stay out of every count',
-        Number(counts.pending) + Number(counts.running) + Number(counts.finished) === 7,
+        Number(counts.pending) + Number(counts.running) + Number(counts.finished) === 9,
         JSON.stringify(counts))
+
+      // Subagents bubble up instead of owning a count: r3's own Agent is idle
+      // but two subagents run, p4's own Agent is idle but a subagent waits.
+      region().querySelector('[data-state="running"]').click()
+      await waitFor(board)
+      var r3Row = board().querySelector('[data-dff-board-row="r3"]')
+      check('a running subagent keeps its parent running', Boolean(r3Row))
+      check('the row names how many subagents are running',
+        Boolean(r3Row) && text(r3Row).indexOf('subagentCount') >= 0, r3Row ? text(r3Row) : '')
+      check('the parent counts once, not once per subagent', columns().length === 3
+        && board().querySelectorAll('[data-state="running"] [data-dff-board-row]').length === 3,
+        board().querySelectorAll('[data-state="running"] [data-dff-board-row]').length)
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+      await waitFor(function () { return !board() })
+      region().querySelector('[data-state="pending"]').click()
+      await waitFor(board)
+      var p4Row = board().querySelector('[data-dff-board-row="p4"]')
+      check('a waiting subagent surfaces its parent as awaiting', Boolean(p4Row))
+      check('the waiting row says the subagent needs you',
+        Boolean(p4Row) && text(p4Row).indexOf('pendingSubagent') >= 0, p4Row ? text(p4Row) : '')
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+      await waitFor(function () { return !board() })
 
       // ── Filtered open from a pill ─────────────────────────────────────────
       region().querySelector('[data-state="pending"]').click()
@@ -183,8 +217,8 @@
         columns().map(function (c) { return c.getAttribute('data-state') }).join(','))
       check('the board header carries no counts of its own', !board().querySelector('.dff-board-title span'))
       var rows = board().querySelectorAll('[data-state="pending"] [data-dff-board-row]')
-      check('the pending column lists every waiting session', rows.length === 3, rows.length)
-      check('the longest wait comes first', rows.length === 3 && rows[0].getAttribute('data-dff-board-row') === 'p3',
+      check('the pending column lists every waiting session', rows.length === 4, rows.length)
+      check('the longest wait comes first', rows.length === 4 && rows[0].getAttribute('data-dff-board-row') === 'p3',
         rows.length ? rows[0].getAttribute('data-dff-board-row') : '')
       check('a waiting row names the reason', text(rows[0]).indexOf('pendingPlan') >= 0, text(rows[0]))
 
@@ -232,8 +266,8 @@
       Array.prototype.forEach.call(region().querySelectorAll('.dff-region-pill'), function (pill) {
         live[pill.getAttribute('data-state')] = pill.getAttribute('data-count')
       })
-      check('the counts follow DSH status changes without a reload', live.pending === '2' && live.finished === '3',
-        JSON.stringify(live))
+      check('the counts follow DSH status changes without a reload',
+        live.pending === '3' && live.running === '3' && live.finished === '3', JSON.stringify(live))
 
       // ── Collapsed rail ────────────────────────────────────────────────────
       regionRoot.render(React.createElement(Region, { wide: false }))

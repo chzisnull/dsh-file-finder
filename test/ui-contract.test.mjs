@@ -362,3 +362,15 @@ test('the board navigates through the documented workspace service', () => {
   assert.match(source, /serviceOf\(ctx, 'uiSession'\)/)
   assert.match(source, /sessionStatus/)
 })
+
+test('subagent activity rolls up into the session it belongs to', () => {
+  // The chain walk mirrors DSH's own descendant index: origins, parentId, loop guard.
+  assert.match(source, /function indexSubagentRollup\(/)
+  assert.match(source, /descendant\.origin !== 'subagent'/)
+  assert.match(source, /current\.parentId !== undefined && !seen\.has\(current\.id\)/)
+  // Both facts bubble up; the parent counts once because subagents own no row.
+  assert.match(source, /if \(running\) aggregate\.running \+= 1/)
+  assert.match(source, /if \(pending\) aggregate\.pending \+= 1/)
+  assert.match(source, /pendingSubagent/)
+  assert.match(source, /subagentCount/)
+})

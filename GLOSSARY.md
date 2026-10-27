@@ -58,7 +58,15 @@ _Avoid_: badge bar, status widget, notification tray
 The one state a session contributes to the counts, taken from DSH's own facts in
 this order: awaiting the user (pending approval, question or plan review),
 running, finished-unread, idle. Exactly one state per session, so the three
-counts add up to the number of sessions with something to show.
+counts add up to the number of sessions with something to show. A session's
+state includes its subagent descendants: a running subagent keeps the parent
+running and a waiting subagent makes the parent awaiting, while the parent still
+counts once.
+
+**Subagent rollup**:
+The rule that attaches subagent activity to the session it belongs to instead of
+counting subagents separately, walking the `parentId` chain the way DSH's own
+session list does.
 _Avoid_: status (reserved for DSH's `SessionStatus` fields), 已完成 as "all
 idle sessions"
 
