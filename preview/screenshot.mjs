@@ -57,7 +57,12 @@ const CAPTURES = [
   { key: 'settings-wide', hash: 'settings', viewport: MAIN_VIEWPORT },
   // Taller viewport so the whole settings page (all cards + reset footer) is
   // visible in one review image; the required 1100×760 shot is `settings`.
-  { key: 'settings-tall', hash: 'settings', viewport: { width: 1100, height: 1400 } },
+  { key: 'settings-tall', hash: 'settings', viewport: { width: 1100, height: 1480 } },
+  // The session board: the counts at the sidebar foot, then the board itself.
+  { key: 'session-region', hash: 'session-region', viewport: MAIN_VIEWPORT },
+  { key: 'session-board', hash: 'session-board', viewport: MAIN_VIEWPORT },
+  // Narrower viewport: the board stacks its three columns into one.
+  { key: 'session-board-narrow', hash: 'session-board-narrow', viewport: { width: 1024, height: 860 } },
 ]
 
 /** One extra frame captured with motion enabled, light theme only. */
@@ -72,6 +77,8 @@ const MOTION_CAPTURE = {
 
 const REQUIRED_KEYS = [
   'palette-name',
+  'session-region',
+  'session-board',
   'palette-content',
   'palette-browse',
   'palette-empty',
@@ -299,6 +306,13 @@ function collectInfo() {
     dirtyState: Boolean(document.querySelector('[data-state="dirty"]')),
     hasConfirmBanner: Boolean(banner),
     confirmBannerText: banner ? banner.innerText : '',
+    hasRegion: Boolean(document.querySelector('[data-dff-region]')),
+    regionPills: document.querySelectorAll('.dff-region-pill').length,
+    hasBoard: Boolean(document.querySelector('[data-dff-board]')),
+    boardCols: document.querySelectorAll('[data-dff-board-col]').length,
+    boardRows: document.querySelectorAll('[data-dff-board-row]').length,
+    boardRect: rectOf(document.querySelector('[data-dff-board]')),
+    boardSubtitle: (document.querySelector('.dff-board-title span') || {}).textContent || '',
     headingCount: document.querySelectorAll('h1, h2, h3').length,
     controlCount: document.querySelectorAll('button, input, select, textarea').length,
     mode,
@@ -398,6 +412,22 @@ function validateState(stateKey, info, pushWarning) {
       if (!info.hasEditor) fail('editor not found for the in-file find shot')
       if (!info.hasFind) fail('find widget not found. Expected [data-dff-find].')
       if (info.findMarks < 1) fail(`no match highlight was rendered (found ${info.findMarks})`)
+      break
+    }
+    case 'session-region': {
+      if (!info.hasRegion) fail('the session counts did not render in the sidebar foot')
+      if (info.regionPills !== 3) fail(`expected three count pills, found ${info.regionPills}`)
+      if (info.hasBoard) fail('the board must stay closed for the region shot')
+      break
+    }
+    case 'session-board':
+    case 'session-board-narrow': {
+      if (!info.hasRegion) fail('the session counts did not render in the sidebar foot')
+      if (!info.hasBoard) fail('the session board did not open on the shortcut')
+      if (info.boardCols !== 3) fail(`expected three board columns, found ${info.boardCols}`)
+      if (info.boardRows < 8) fail(`board looks empty (${info.boardRows} rows)`)
+      if (/·\s*·/.test(info.boardSubtitle)) fail(`the board subtitle lost a count: "${info.boardSubtitle}"`)
+      if (info.documentOverflowX > 2) fail('the board overflows horizontally')
       break
     }
     case 'settings': {

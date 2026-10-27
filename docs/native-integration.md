@@ -913,6 +913,39 @@ detection. Opening an HTML file opens the one on disk (`file://`), so a page
 that needs a local dev server renders empty — that is the page's dependency, not
 the opener's.
 
+## 10. Session status, navigation and the sidebar foot (session board)
+
+The session board (0.13.0) is a pure client view over facts DSH already keeps.
+It reads four surfaces, all of them declared in package types:
+
+| Read | Shape | Used for |
+| --- | --- | --- |
+| `ctx.sessions.list` | `ObservableSnapshot<SessionListState>` (`ids`, `byId`) | titles (`displayTitle`), workspace (`cwd`), recency, `blank`, `origin: 'subagent'` |
+| `ctx.uiSession.sessionStatus` | `HostObservable<Map<SessionId, SessionStatus>>` | `running`, `pendingInteraction` (kinds `approval`, `question`, `plan-review`), `completionUnread` |
+| `ctx.workspaces.list` | snapshot with `items` (`title`, `sessionIds`) and `archivedSessionIds` | workspace titles in rows and search, and dropping archived sessions from the counts |
+| `ctx.uiWorkspace.openSession(id)` | navigation | opening a row |
+
+Two slots carry the UI: `sidebar.footer.action` (a `list` slot whose owner share
+is `{ wide }`, so the counts know about the 56px rail) and `shell.overlay` (a
+`list`, click-through layer — the board opts back into pointer events).
+
+**State priority.** One state per session, in this order: awaiting the user →
+running → finished → idle. That is DSH's own precedence in `ui-workspace`
+(`sessionStatuses()`), so the counts cannot disagree with the dots in the
+session list.
+
+**`completionUnread` is client-only.** It is a per-page `Set` in
+`ui-session`: a session is added when a running Agent stops while the user is
+elsewhere, and removed when that session becomes the main view or the page
+reloads. "Finished" therefore means *finished and not yet looked at*, not
+"historically completed". A stable historical counter would need Host data and
+was rejected as a non-actionable number.
+
+**Degradation.** A shell without `uiSession` still answers `running` from
+`sessions.list` rows; a shell without `uiWorkspace` cannot navigate. Nothing in
+the board is required for the file surfaces to work, and the plugin registers
+nothing in DSH's file registries (ADR 0001/0002).
+
 ## Appendix A — reproducing the asar citations
 
 ```bash

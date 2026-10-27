@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>dsh-file-finder · session board check</title>
+<script>
+  // Seed the plugin settings for the "off" scenarios before client.js reads them.
+  (function () {
+    var scenario = new URLSearchParams(location.search).get('settings') || ''
+    if (!scenario) return
+    var value = { sessionBoard: { enabled: true, region: true, shortcut: true } }
+    if (scenario === 'off') value = { sessionBoard: { enabled: false, region: true, shortcut: true } }
+    if (scenario === 'no-region') value = { sessionBoard: { enabled: true, region: false, shortcut: true } }
+    if (scenario === 'no-shortcut') value = { sessionBoard: { enabled: true, region: true, shortcut: false } }
+    try { localStorage.setItem('dsh-file-finder.settings.v1', JSON.stringify(value)) } catch (error) { /* ignore */ }
+  })()
+</script>
+</head>
+<body>
+<div id="region-host"></div>
+<div id="overlay-host"></div>
+<script src="./vendor/react.development.js"></script>
+<script src="./vendor/react-dom.development.js"></script>
+<script src="./loader-shim.js"></script>
+<script src="../client.js"></script>
+<script>
+  (function () {
+    'use strict'
+    var results = []
+
+    function check(name, ok, detail) {
+      results.push({ name: name, ok: Boolean(ok), detail: detail === undefined ? null : String(detail) })
+    }
+
+    function text(node) { return node ? String(node.textContent || '') : '' }
+
+    function observable(initial) {
+      var value = initial
+      var listeners = new Set()
+      return {
+        getSnapshot: function () { return value },
+        subscribe: function (listener) {
+          listeners.add(listener)
+          return function () { listeners.delete(listener) }
+        },
+        set: function (next) {
+          value = next
+          listeners.forEach(function (listener) { listener() })
+        },
+      }
+    }
+
+    function secondsAgo(seconds) { return Date.now() - seconds * 1000 }
+
+    // Three states DSH models, plus the three rows that must never be counted.
+    var sessions = observable({
+      ids: ['p1', 'p2', 'p3', 'r1', 'r2', 'd1', 'd2', 'blank', 'sub', 'archived'],
+      byId: {
+        p1: { id: 'p1', displayTitle: '重构 auth 中间件', cwd: '/w/dsh-file-finder', updatedAt: secondsAgo(240), blank: false, running: false },
+        p2: { id: 'p2', displayTitle: '发布 0.12.0 收尾', cwd: '/w/dsh-file-finder', updatedAt: secondsAgo(600), blank: false, running: false },
+        p3: { id: 'p3', displayTitle: '数据库迁移方案', cwd: '/w/api-server', updatedAt: secondsAgo(1800), blank: false, running: false },
+        r1: { id: 'r1', displayTitle: '会话看板：区域计数', cwd: '/w/dsh-file-finder', updatedAt: secondsAgo(30), blank: false, running: true },
+        r2: { id: 'r2', displayTitle: 'CI 流水线排障', cwd: '/w/api-server', updatedAt: secondsAgo(90), blank: false, running: true },
+        d1: { id: 'd1', displayTitle: '截图重采', cwd: '/w/dsh-file-finder', updatedAt: secondsAgo(180), blank: false, running: false },
+        d2: { id: 'd2', displayTitle: 'npm 安装验证', cwd: '/w/dsh-file-finder', updatedAt: secondsAgo(720), blank: false, running: false },
+        blank: { id: 'blank', displayTitle: '', cwd: '/w/dsh-file-finder', updatedAt: secondsAgo(10), blank: true, running: false },
+        sub: { id: 'sub', displayTitle: 'Subagent: read files', cwd: '/w/dsh-file-finder', updatedAt: secondsAgo(20), blank: false, running: true, origin: 'subagent' },
+        archived: { id: 'archived', displayTitle: 'Old session', cwd: '/w/dsh-file-finder', updatedAt: secondsAgo(7200), blank: false, running: false },
+      },
+      phase: 'ready',
+    })
+
+    var statuses = observable(new Map([
+      ['p1', { running: false, pendingInteraction: { kind: 'approval' }, completionUnread: false }],
+      ['p2', { running: false, pendingInteraction: { kind: 'question' }, completionUnread: false }],
+      ['p3', { running: false, pendingInteraction: { kind: 'plan-review' }, completionUnread: false }],
+      ['r1', { running: true, pendingInteraction: undefined, completionUnread: false }],
+      ['r2', { running: true, pendingInteraction: undefined, completionUnread: false }],
+      ['d1', { running: false, pendingInteraction: undefined, completionUnread: true }],
+      ['d2', { running: false, pendingInteraction: undefined, completionUnread: true }],
+      ['blank', { running: false, pendingInteraction: undefined, completionUnread: false }],
+      ['sub', { running: true, pendingInteraction: undefined, completionUnread: false }],
+      ['archived', { running: false, pendingInteraction: undefined, completionUnread: true }],
+    ]))
+
+    var workspaces = observable({
+      archivedSessionIds: ['archived'],
+      items: [
+        { workspaceId: 'ws1', path: '/w/dsh-file-finder', title: '文件查找插件', sessionIds: ['p1', 'p2', 'r1', 'd1', 'd2', 'blank', 'sub', 'archived'] },
+        { workspaceId: 'ws2', path: '/w/api-server', title: '接口服务', sessionIds: ['p3', 'r2'] },
+      ],
+    })
+
+    var openedSessions = []
+    var ctx = {
+      effect: function (fn) { try { var off = fn(); return function () { try { if (typeof off === 'function') off() } catch (e) {} } } catch (e) { return function () {} } },
+      get: function (name) {
+        if (name === 'sessions') return { list: sessions }
+        if (name === 'uiSession') return { sessionStatus: statuses }
+        if (name === 'workspaces') return { list: workspaces }
+        if (name === 'uiWorkspace') { return { openSession: function (id) { openedSessions.push(id) } } }
+        return undefined
+      },
+      inject: function (names, callback) {
+        callback({ effect: ctx.effect, shortcuts: { register: function () { return function () {} } } })
+      },
+      locale: { register: function () {}, bind: function () { return function (key) { return key } } },
+      slots: { inject: function (name, callback) { callback() }, register: function () { return function () {} } },
+    }
+
+    var registered = []
+    ctx.slots = {
+      inject: function (name, callback) { callback() },
+      register: function (entry, component) {
+        registered.push({ entry: entry, component: component })
+        return function () {}
+      },
+    }
+
+    function waitFor(checkFn, timeout) {
+      var started = performance.now()
+      return new Promise(function (resolve, reject) {
+        (function poll() {
+          var value = null
+          try { value = checkFn() } catch (error) { value = null }
+          if (value) { resolve(value); return }
+          if (performance.now() - started > (timeout || 4000)) { reject(new Error('timed out waiting for a selector')); return }
+          setTimeout(poll, 25)
+        })()
+      })
+    }
+
+    function setInput(input, value) {
+      var setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+      setter.call(input, value)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+
+    function pressBoardShortcut() {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'g', code: 'KeyG', metaKey: true, shiftKey: true, bubbles: true, cancelable: true }))
+    }
+
+    function board() { return document.querySelector('[data-dff-board]') }
+    function region() { return document.querySelector('[data-dff-region]') }
+    function columns() { return Array.prototype.slice.call(document.querySelectorAll('[data-dff-board-col]')) }
+
+    ;(async function run() {
+      var moduleExports = window.__DFF_MODULE__
+      await moduleExports.apply(ctx)
+
+      var Region = null
+      var Overlay = null
+      registered.forEach(function (item) {
+        if (item.entry.name === 'sidebar.footer.action') Region = item.component
+        if (item.entry.name === 'shell.overlay' && item.entry.id === 'file-finder-board') Overlay = item.component
+      })
+
+      var regionRoot = ReactDOM.createRoot(document.getElementById('region-host'))
+      var overlayRoot = ReactDOM.createRoot(document.getElementById('overlay-host'))
+      regionRoot.render(React.createElement(Region, { wide: true }))
+      overlayRoot.render(React.createElement(Overlay, {}))
+      await waitFor(region)
+
+      // ── Counts ────────────────────────────────────────────────────────────
+      var pills = region().querySelectorAll('[data-dff-region-pill], .dff-region-pill')
+      check('the region renders one pill per state', pills.length === 3, pills.length)
+      var counts = {}
+      Array.prototype.forEach.call(pills, function (pill) { counts[pill.getAttribute('data-state')] = pill.getAttribute('data-count') })
+      check('pending counts only sessions awaiting the user', counts.pending === '3', counts.pending)
+      check('running counts only live sessions', counts.running === '2', counts.running)
+      check('finished counts only unread completions', counts.finished === '2', counts.finished)
+      // The three numbers add up to the seven actionable sessions only: the
+      // blank row, the subagent row and the archived row contribute nothing.
+      check('blank, subagent and archived sessions stay out of every count',
+        Number(counts.pending) + Number(counts.running) + Number(counts.finished) === 7,
+        JSON.stringify(counts))
+
+      // ── Filtered open from a pill ─────────────────────────────────────────
+      region().querySelector('[data-state="pending"]').click()
+      await waitFor(board)
+      check('a pill opens the board', Boolean(board()))
+      check('a pill opens the board filtered to its state', columns().length === 1 && columns()[0].getAttribute('data-state') === 'pending',
+        columns().map(function (c) { return c.getAttribute('data-state') }).join(','))
+      var rows = board().querySelectorAll('[data-dff-board-row]')
+      check('the pending column lists every waiting session', rows.length === 3, rows.length)
+      check('the longest wait comes first', rows.length === 3 && rows[0].getAttribute('data-dff-board-row') === 'p3',
+        rows.length ? rows[0].getAttribute('data-dff-board-row') : '')
+      check('a waiting row names the reason', text(rows[0]).indexOf('pendingPlan') >= 0, text(rows[0]))
+      check('the filter is visible and clearable', text(board()).indexOf('boardFiltered') >= 0)
+
+      // ── Navigating from a row ─────────────────────────────────────────────
+      rows[0].click()
+      await new Promise(function (resolve) { setTimeout(resolve, 200) })
+      check('a row opens the session through uiWorkspace', openedSessions.length === 1 && openedSessions[0] === 'p3', openedSessions.join(','))
+      check('opening a session closes the board', !board())
+
+      // ── Shortcut ──────────────────────────────────────────────────────────
+      pressBoardShortcut()
+      await waitFor(board)
+      check('the shortcut opens the board', Boolean(board()))
+      check('the shortcut opens with every column', columns().length === 3, columns().length)
+      check('columns keep their own state', columns().map(function (c) { return c.getAttribute('data-state') }).join(',') === 'pending,running,finished')
+
+      // ── Search ────────────────────────────────────────────────────────────
+      var input = board().querySelector('.dff-board-search input')
+      setInput(input, 'CI')
+      await new Promise(function (resolve) { setTimeout(resolve, 80) })
+      var runningRows = board().querySelector('[data-state="running"]').querySelectorAll('[data-dff-board-row]')
+      check('search narrows the columns', runningRows.length === 1, runningRows.length)
+      check('a column with no match says so', text(board().querySelector('[data-state="pending"]')).indexOf('boardNoMatch') >= 0)
+      setInput(input, '')
+      await new Promise(function (resolve) { setTimeout(resolve, 80) })
+
+      setInput(input, '接口服务')
+      await new Promise(function (resolve) { setTimeout(resolve, 80) })
+      var byWorkspace = board().querySelectorAll('[data-dff-board-row]')
+      check('search also matches the workspace title', byWorkspace.length === 2, byWorkspace.length)
+      setInput(input, '')
+      await new Promise(function (resolve) { setTimeout(resolve, 80) })
+
+      // ── Escape ────────────────────────────────────────────────────────────
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+      await waitFor(function () { return !board() })
+      check('Escape closes the board', !board())
+
+      // ── Live update ───────────────────────────────────────────────────────
+      var next = new Map(statuses.getSnapshot())
+      next.set('p1', { running: false, pendingInteraction: undefined, completionUnread: true })
+      statuses.set(next)
+      await new Promise(function (resolve) { setTimeout(resolve, 80) })
+      var live = {}
+      Array.prototype.forEach.call(region().querySelectorAll('.dff-region-pill'), function (pill) {
+        live[pill.getAttribute('data-state')] = pill.getAttribute('data-count')
+      })
+      check('the counts follow DSH status changes without a reload', live.pending === '2' && live.finished === '3',
+        JSON.stringify(live))
+
+      // ── Collapsed rail ────────────────────────────────────────────────────
+      regionRoot.render(React.createElement(Region, { wide: false }))
+      await new Promise(function (resolve) { setTimeout(resolve, 60) })
+      var rail = region()
+      check('the rail variant keeps the three states', rail && rail.getAttribute('data-wide') === 'false')
+      var label = rail.querySelector('.dff-region-label')
+      check('the rail hides the labels and keeps the numbers', label && getComputedStyle(label).display === 'none',
+        label ? getComputedStyle(label).display : 'no label')
+
+      window.__SESSION_BOARD_CHECK__ = {
+        passed: results.every(function (item) { return item.ok }),
+        results: results,
+      }
+    })().catch(function (error) {
+      window.__SESSION_BOARD_CHECK__ = {
+        passed: false,
+        results: results,
+        error: String(error && error.stack ? error.stack : error),
+      }
+    })
+  })()
+</script>
+</body>
+</html>

@@ -42,6 +42,26 @@ The single global preference that chooses which File surface Enter uses for a
 text file. Media always opens in the Viewer regardless of it.
 _Avoid_: 打开方式 as a per-file setting, default view
 
+**Session board**:
+The plugin's overlay that lists the user's sessions in three columns — the ones
+awaiting the user, the ones running, and the ones that finished unread — and
+opens any of them. It is a view of DSH's session status, not a second store.
+_Avoid_: 会话看板 as a task tracker, dashboard, kanban as a separate product
+
+**Status region**:
+The three counts at the sidebar foot (awaiting / running / finished) that open
+the Session board, filtered to the count that was clicked. Collapses to a
+stacked dot rail when the sidebar is in its 56px form.
+_Avoid_: badge bar, status widget, notification tray
+
+**Session state**:
+The one state a session contributes to the counts, taken from DSH's own facts in
+this order: awaiting the user (pending approval, question or plan review),
+running, finished-unread, idle. Exactly one state per session, so the three
+counts add up to the number of sessions with something to show.
+_Avoid_: status (reserved for DSH's `SessionStatus` fields), 已完成 as "all
+idle sessions"
+
 **Desktop opener**:
 The action that hands one file to the operating system's default application
 through DSH's session controller. It is not a File surface: the file leaves DSH

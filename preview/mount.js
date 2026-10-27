@@ -30,6 +30,9 @@
     'viewer',
     'viewer-html',
     'settings',
+    'session-region',
+    'session-board',
+    'session-board-narrow',
   ]
   const CWD = '/workspace/dsh-file-finder'
 
@@ -395,31 +398,107 @@ export function rankName(query, displayPath, options = {}) {
   // -------------------------------------------------------------------------
   // Fake DSH client context
   // -------------------------------------------------------------------------
-  const sessions = {
-    list: {
-      getSnapshot: () => ({
-        // Mirror the DSH snapshot shape: newest clients derive the live row
-        // from list.ids + retainedBy.mainView; older ones read list.current.
-        current: 'ses_demo',
-        ids: ['ses_demo', 'ses_other'],
-        byId: {
-          ses_demo: {
-            id: 'ses_demo',
-            title: 'File finder palette polish',
-            cwd: CWD,
-            retainedBy: { mainView: 1 },
-          },
-          ses_other: {
-            id: 'ses_other',
-            title: 'Search result ranking review',
-            cwd: '/workspace/dsh-workbench',
-            retainedBy: { mainView: 0 },
-          },
-        },
-      }),
-      subscribe: () => () => {},
-    },
+  function observable(initial) {
+    let value = initial
+    const listeners = new Set()
+    return {
+      getSnapshot: () => value,
+      subscribe(listener) {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      set(next) {
+        value = next
+        listeners.forEach((listener) => listener())
+      },
+    }
   }
+
+  const minutesAgo = (minutes) => Date.now() - minutes * 60_000
+  // Titles carry both languages so the shots read naturally in either.
+  const sessionRows = [
+    ['p1', { zh: '重构 auth 中间件', en: 'Refactor the auth middleware' }, '/workspace/dsh-file-finder', minutesAgo(4)],
+    ['p2', { zh: '发布 0.12.0 收尾', en: 'Finish the 0.12.0 release' }, '/workspace/dsh-file-finder', minutesAgo(11)],
+    ['p3', { zh: '数据库迁移方案', en: 'Database migration plan' }, '/workspace/api-server', minutesAgo(26)],
+    ['r1', { zh: '会话看板：区域计数', en: 'Session board: sidebar counts' }, '/workspace/dsh-file-finder', minutesAgo(2)],
+    ['r2', { zh: '视频素材裁剪', en: 'Trim the video footage' }, '/workspace/dsh-file-finder-video', minutesAgo(6)],
+    ['r3', { zh: 'CI 流水线排障', en: 'Pipelines: find the flaky job' }, '/workspace/api-server', minutesAgo(9)],
+    ['r4', { zh: '价格页文案', en: 'Pricing page copy' }, '/workspace/marketing-site', minutesAgo(13)],
+    ['r5', { zh: '依赖升级评估', en: 'Dependency upgrade review' }, '/workspace/dsh-file-finder', minutesAgo(18)],
+    ['d1', { zh: '截图重采', en: 'Re-shoot the screenshots' }, '/workspace/dsh-file-finder', minutesAgo(3)],
+    ['d2', { zh: 'npm 安装验证', en: 'Verify the npm install' }, '/workspace/dsh-file-finder', minutesAgo(12)],
+    ['blank', { zh: '', en: '' }, '/workspace/dsh-file-finder', minutesAgo(1)],
+    ['sub', { zh: 'Subagent: read files', en: 'Subagent: read files' }, '/workspace/dsh-file-finder', minutesAgo(1)],
+    ['old', { zh: '旧的一次实验', en: 'An old experiment' }, '/workspace/dsh-file-finder', minutesAgo(240)],
+  ]
+  const sessionStatusRows = new Map([
+    ['p1', { running: false, pendingInteraction: { kind: 'approval' }, completionUnread: false }],
+    ['p2', { running: false, pendingInteraction: { kind: 'question' }, completionUnread: false }],
+    ['p3', { running: false, pendingInteraction: { kind: 'plan-review' }, completionUnread: false }],
+    ['r1', { running: true, pendingInteraction: undefined, completionUnread: false }],
+    ['r2', { running: true, pendingInteraction: undefined, completionUnread: false }],
+    ['r3', { running: true, pendingInteraction: undefined, completionUnread: false }],
+    ['r4', { running: true, pendingInteraction: undefined, completionUnread: false }],
+    ['r5', { running: true, pendingInteraction: undefined, completionUnread: false }],
+    ['d1', { running: false, pendingInteraction: undefined, completionUnread: true }],
+    ['d2', { running: false, pendingInteraction: undefined, completionUnread: true }],
+    ['blank', { running: false, pendingInteraction: undefined, completionUnread: false }],
+    ['sub', { running: true, pendingInteraction: undefined, completionUnread: false }],
+    ['old', { running: false, pendingInteraction: undefined, completionUnread: true }],
+  ])
+
+  const sessions = {
+    list: observable({
+      // Mirror the DSH snapshot shape: newest clients derive the live row
+      // from list.ids + retainedBy.mainView; older ones read list.current.
+      current: 'r1',
+      ids: sessionRows.map((row) => row[0]),
+      byId: Object.fromEntries(sessionRows.map(([id, title, cwd, updatedAt], index) => [id, {
+        id,
+        displayTitle: title[lang] || '',
+        cwd,
+        updatedAt,
+        blank: id === 'blank',
+        origin: id === 'sub' ? 'subagent' : undefined,
+        running: id.startsWith('r') || id === 'sub',
+        retainedBy: { mainView: index === 3 ? 1 : 0 },
+      }])),
+    }),
+  }
+  const uiSession = { sessionStatus: observable(sessionStatusRows) }
+  const workspaces = {
+    list: observable({
+      archivedSessionIds: ['old'],
+      // DSH's WorkspaceView: a title, a path, and the sessions it accounts for.
+      items: [
+        {
+          workspaceId: 'ws_file_finder',
+          path: '/workspace/dsh-file-finder',
+          title: lang === 'zh' ? '文件查找插件' : 'File Finder',
+          sessionIds: ['p1', 'p2', 'r1', 'r5', 'd1', 'd2', 'blank', 'sub', 'old'],
+        },
+        {
+          workspaceId: 'ws_api',
+          path: '/workspace/api-server',
+          title: lang === 'zh' ? '接口服务' : 'API server',
+          sessionIds: ['p3', 'r3'],
+        },
+        {
+          workspaceId: 'ws_video',
+          path: '/workspace/dsh-file-finder-video',
+          title: lang === 'zh' ? '宣传视频' : 'Promo video',
+          sessionIds: ['r2'],
+        },
+        {
+          workspaceId: 'ws_site',
+          path: '/workspace/marketing-site',
+          title: lang === 'zh' ? '官网' : 'Marketing site',
+          sessionIds: ['r4'],
+        },
+      ],
+    }),
+  }
+  const uiWorkspace = { openSession() {} }
 
   function makeT(namespace) {
     return function t(key) {
@@ -439,6 +518,9 @@ export function rankName(query, displayPath, options = {}) {
     },
     get(name) {
       if (name === 'sessions') return sessions
+      if (name === 'uiSession') return uiSession
+      if (name === 'workspaces') return workspaces
+      if (name === 'uiWorkspace') return uiWorkspace
       return undefined
     },
     inject(names, callback) {
@@ -488,6 +570,9 @@ export function rankName(query, displayPath, options = {}) {
   }
   // serviceOf() falls back to ctx[name]; keep parity with the real context.
   ctx.sessions = sessions
+  ctx.uiSession = uiSession
+  ctx.workspaces = workspaces
+  ctx.uiWorkspace = uiWorkspace
 
   window.__DFF_SHORTCUTS__ = shortcuts
   window.__DFF_SLOT_ENTRIES__ = slotEntries
@@ -868,6 +953,40 @@ export function rankName(query, displayPath, options = {}) {
     )
   }
 
+  async function mountSessionRegion() {
+    setSurface('app')
+    const entry = await waitForSlotEntry('sidebar.footer.action', 1500)
+    if (!entry || typeof entry.component !== 'function') {
+      throw new Error('the sidebar.footer.action slot did not register a renderable component')
+    }
+    const host = document.getElementById('sidebar-status-root')
+    const reactRoot = ReactDOM.createRoot(host)
+    reactRoot.render(React.createElement(entry.component, { wide: true }))
+    await waitFor(() => document.querySelector('[data-dff-region]'), 4000, 'the session counts to render')
+  }
+
+  async function mountSessionBoard() {
+    await mountSessionRegion()
+    const entry = slotEntries
+      .filter((item) => item.slot === 'shell.overlay')
+      .map((item) => item)
+      .find((item) => item.definition && item.definition.id === 'file-finder-board')
+    if (!entry || typeof entry.component !== 'function') {
+      throw new Error('the session board did not register in shell.overlay')
+    }
+    const container = document.getElementById('overlay-root')
+    const reactRoot = ReactDOM.createRoot(container)
+    reactRoot.render(React.createElement(entry.component, {}))
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'g', code: 'KeyG', metaKey: true, shiftKey: true, bubbles: true, cancelable: true,
+    }))
+    await waitFor(() => document.querySelector('[data-dff-board]'), 4000, 'the session board to open')
+    await new Promise((resolve) => setTimeout(resolve, 220))
+    if (state === 'session-board-narrow') {
+      await waitFor(() => document.querySelectorAll('[data-dff-board-col]').length === 3, 3000, 'three board columns')
+    }
+  }
+
   async function mountSettings() {
     setSurface('settings')
     const entry = await waitForSlotEntry('settings.section', 1500)
@@ -915,6 +1034,8 @@ export function rankName(query, displayPath, options = {}) {
     await moduleExports.apply(ctx)
 
     if (state === 'settings') await mountSettings()
+    else if (state === 'session-region') await mountSessionRegion()
+    else if (state === 'session-board' || state === 'session-board-narrow') await mountSessionBoard()
     else await mountPalette()
 
     await markReady()

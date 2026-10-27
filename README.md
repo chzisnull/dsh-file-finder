@@ -17,6 +17,7 @@ A DeepSeek Harness plugin for finding workspace files without leaving DSH: searc
 - **Search by content**, with one result row per matching line.
 - **Choose where files open**: one global **Open mode** picks which File surface Enter uses for text — **Native preview** (DSH's right-sidebar document preview, the default), the plugin's own **Viewer** (read-only, with syntax colours and in-file find) or the **Editor** (saves through DSH's workspace filesystem and refuses to overwrite a file that changed after it was loaded). Cmd/Ctrl+Enter always opens the other side of view/edit.
 - **Media always uses the Viewer**: images, video, audio, PDFs, HTML and Markdown open in the plugin's Viewer whatever the Open mode is; kinds the Viewer cannot render (Office documents, archives, binaries) go to DSH's native preview instead, with a notice when it is unavailable.
+- **Session board**: three pills at the sidebar foot count the sessions **awaiting you / running / finished** — the same facts DSH's own dots use (a pending approval or question, an Agent at work, a background finish you have not opened yet). Click a pill to open the board pre-filtered to that column, or press **⇧⌘G** (**Ctrl+Shift+G** on Windows/Linux) anywhere. Picking a row jumps into that session; search, Escape, and a single stacked column on narrow screens come with it. Three switches in Settings control the whole feature, the counts and the shortcut.
 - **Desktop opener**: the Viewer and Editor carry an "Open in default app" button that hands the file to the operating system through DSH — a web page lands in the system's default browser (named as such on macOS, where DSH forces it), everything else in the app registered for that type. The host decides whether it reaches a desktop at all and which types it refuses, so executable files (scripts, app bundles, installers) never get the control, a host without a desktop does not show it, a failed open stays on the button as a retry, and a draft with unsaved changes keeps it inert until you save.
 - **Native shortcuts**: Cmd/Ctrl+P and Cmd/Ctrl+Shift+F, like VS Code, without claiming a default binding in DSH's shortcut registry.
 - **Optional DS Bot bridge**: when the DS Bot plugin is installed, Cmd/Ctrl+Shift+B flips between Bot mode and classic Agent mode; without it neither the shortcut nor its settings card exists.
@@ -97,6 +98,8 @@ The editor shows a line-number gutter and highlights the caret's line. **Cmd/Ctr
 | **Syntax colours, line numbers, in-file find** | **Built-in viewer for images, HTML, Markdown, video** |
 | ![Settings: three-way Open mode](docs/media/screenshots/en/settings.png) | ![Dark theme editor](docs/media/screenshots/dark/editor-dark.png) |
 | **One global Open mode over three surfaces** | **The same editor in the dark theme** |
+| ![Session board](docs/media/screenshots/en/session-board.png) | ![Settings: session board switches](docs/media/screenshots/en/settings-board.png) |
+| **Session board: awaiting you, running, finished** | **Three switches: feature, counts, ⇧⌘G** |
 
 ## Install
 
@@ -134,6 +137,7 @@ npm run check:viewer
 npm run check:intel
 npm run check:tokens
 npm run check:browse
+npm run check:board
 ```
 
 The DS Bot bridge also has a browser check that runs the real key handler against DS Bot's real selectors, with and without `ds-bot` in the boot graph:

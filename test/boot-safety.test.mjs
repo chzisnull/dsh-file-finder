@@ -96,10 +96,10 @@ test('every registered shortcut leaves its default binding empty', () => {
   const registered = []
   plugin.apply(fakeContext(registered))
 
-  assert.equal(registered.length, 3, 'both search commands and the browser command must be registered')
+  assert.equal(registered.length, 4, 'both search commands, the browser command and the board command must be registered')
   assert.deepEqual(
     registered.map((command) => command.id).sort(),
-    ['files.browse', 'files.searchContent', 'files.searchName'],
+    ['files.browse', 'files.searchContent', 'files.searchName', 'sessions.board'],
   )
   for (const command of registered) {
     assert.deepEqual(

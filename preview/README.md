@@ -35,7 +35,10 @@ Each run rewrites `preview/shots/`:
 | `editor-find-{light,dark}.png` | 1440×900 @2x | in-file find: query, match count, highlighted hits |
 | `settings-{light,dark}.png` | 1100×760 @2x | settings.section page (narrow) |
 | `settings-wide-{light,dark}.png` | 1440×900 @2x | settings.section page (wide) |
-| `settings-tall-{light,dark}.png` | 1100×1400 @2x | whole settings page for review (all cards + footer) |
+| `settings-tall-{light,dark}.png` | 1100×1480 @2x | whole settings page for review (all cards + footer) |
+| `session-region-{light,dark}.png` | 1440×900 @2x | the three session counts at the sidebar foot, board closed |
+| `session-board-{light,dark}.png` | 1440×900 @2x | the session board open over the app, three columns |
+| `session-board-narrow-{light,dark}.png` | 1024×860 @2x | the same board with its columns stacked into one |
 | `palette-open-motion-light.png` | 1440×900 @2x | extra frame with motion enabled (opening) |
 
 `preview/shots/manifest.json` records the `client.js` SHA-256, timings, dimensions, per-shot
@@ -68,6 +71,9 @@ http://127.0.0.1:<port>/preview/index.html?theme=light&motion=off#settings
 | `#editor` | name search, first result opened in the built-in editor |
 | `#editor-dirty` | editor made dirty, then "back to search" so the confirm banner shows |
 | `#settings` | `settings.section` mounted on a fake DSH settings page |
+| `#session-region` | the fake session dataset counted in the sidebar foot (`sidebar.footer.action`) |
+| `#session-board` | the board overlay opened with a synthetic ⇧⌘G keydown |
+| `#session-board-narrow` | the same board captured at 1024px, where its columns stack |
 
 Query parameters: `theme=light|dark`, `motion=off|on` (default `off`), `lang=en|zh`,
 `capture=open` (signal ready as soon as the palette mounts; used for the motion frame).
@@ -88,6 +94,11 @@ internal state, so a broken registration or shortcut is visible in the screensho
   components, which are then mounted with ReactDOM;
 - `get('sessions')` returns a snapshot with `ids` plus `retainedBy.mainView` (and a legacy
   `current`) that both resolve to `ses_demo`, whose cwd is `/workspace/dsh-file-finder`;
+- `get('uiSession')`, `get('workspaces')` and `get('uiWorkspace')` back the session board: one
+  observable `sessionStatus` map (awaiting / running / finished per session), one workspace list
+  carrying `archivedSessionIds`, and a no-op `openSession` for the row clicks. The same dataset
+  feeds the board shots, including a blank row, a subagent row and an archived row that must not
+  be counted;
 - `document.addEventListener` is left to the browser (the plugin installs its own key handler).
 
 `window.fetch` is intercepted for these local endpoints (the real Host implementation lives in
@@ -196,6 +207,7 @@ preview/
   browse-check.mjs   directory browsing + Open-mode/kind surface checks (`npm run check:browse`)
   token-check.mjs    syntax colour / window / IME / large-file checks (`npm run check:tokens`)
   bot-check.mjs      DS Bot bridge checks (`npm run check:bot`)
+  session-board-check.mjs  sidebar counts + session board checks (`npm run check:board`)
   vendor/           React 18.3.1 UMD builds
   shots/            generated screenshots + manifest.json
 ```

@@ -124,6 +124,39 @@ window.__ModuleLoader__.load({
         settingsBot: 'DS Bot',
         settingsBotHint: '在 Bot 模式和经典 Agent 模式之间切换。只在检测到 DS Bot 插件时出现。',
         shortcutBot: '切换 Bot / 经典 Agent 模式',
+        boardTitle: '会话看板',
+        boardSearch: '搜索会话',
+        boardPending: '待确认',
+        boardRunning: '进行中',
+        boardFinished: '已完成',
+        boardEmpty: '这一类现在是空的',
+        boardNoMatch: '没有匹配的会话',
+        boardFiltered: '只看「{state}」',
+        boardClearFilter: '显示全部',
+        boardMore: '共 {count} 条',
+        boardCounts: '{pending} 待确认 · {running} 进行中 · {finished} 已完成',
+        boardOpenSession: '打开会话 {title}',
+        pendingApproval: '等你批准',
+        pendingQuestion: '等你回答',
+        pendingPlan: '计划待审阅',
+        pendingOther: '等你处理',
+        ageNow: '刚刚',
+        ageMinute: '{count} 分钟前',
+        ageHour: '{count} 小时前',
+        ageDay: '{count} 天前',
+        regionPending: '待确认',
+        regionRunning: '进行中',
+        regionFinished: '已完成',
+        regionAria: '会话：{pending} 个待确认，{running} 个进行中，{finished} 个已完成',
+        shortcutBoard: '打开会话看板',
+        settingsBoard: '会话看板',
+        settingsBoardHint: '在侧栏底部显示待确认、进行中、已完成的会话数量，⇧⌘G 打开看板。',
+        settingsBoardEnabled: '启用会话看板',
+        settingsBoardEnabledHint: '关掉后计数区域、看板和快捷键都不出现。',
+        settingsBoardRegion: '显示计数区域',
+        settingsBoardRegionHint: '侧栏底部三枚胶囊；侧栏收起时变成竖排圆点。',
+        settingsBoardShortcut: '启用 ⇧⌘G',
+        settingsBoardShortcutHint: '插件自己监听这个组合键，不占用 DSH 快捷键注册表。',
         findPlaceholder: '在文件中查找…',
         findCase: '区分大小写',
         findPrev: '上一个匹配',
@@ -262,6 +295,39 @@ window.__ModuleLoader__.load({
         settingsBot: 'DS Bot',
         settingsBotHint: 'Switches between Bot mode and classic Agent mode. This section appears only when the DS Bot plugin is installed.',
         shortcutBot: 'Toggle Bot / classic Agent mode',
+        boardTitle: 'Session board',
+        boardSearch: 'Search sessions',
+        boardPending: 'Awaiting you',
+        boardRunning: 'Running',
+        boardFinished: 'Finished',
+        boardEmpty: 'Nothing in this column',
+        boardNoMatch: 'No session matches',
+        boardFiltered: 'Only “{state}”',
+        boardClearFilter: 'Show all',
+        boardMore: '{count} in total',
+        boardCounts: '{pending} awaiting you · {running} running · {finished} finished',
+        boardOpenSession: 'Open session {title}',
+        pendingApproval: 'waiting for approval',
+        pendingQuestion: 'waiting for your answer',
+        pendingPlan: 'plan needs review',
+        pendingOther: 'waiting for you',
+        ageNow: 'just now',
+        ageMinute: '{count} min ago',
+        ageHour: '{count} h ago',
+        ageDay: '{count} d ago',
+        regionPending: 'Awaiting',
+        regionRunning: 'Running',
+        regionFinished: 'Finished',
+        regionAria: 'Sessions: {pending} awaiting you, {running} running, {finished} finished',
+        shortcutBoard: 'Open session board',
+        settingsBoard: 'Session board',
+        settingsBoardHint: 'Shows how many sessions are awaiting you, running or finished at the sidebar foot; ⇧⌘G opens the board.',
+        settingsBoardEnabled: 'Enable the session board',
+        settingsBoardEnabledHint: 'Turning this off removes the counts, the board and the shortcut.',
+        settingsBoardRegion: 'Show the counts',
+        settingsBoardRegionHint: 'Three pills at the sidebar foot; a stacked dot rail when the sidebar is collapsed.',
+        settingsBoardShortcut: 'Enable ⇧⌘G',
+        settingsBoardShortcutHint: 'The plugin listens for this combination itself; it claims no binding in DSH.',
         findPlaceholder: 'Find in file…',
         findCase: 'Match case',
         findPrev: 'Previous match',
@@ -321,7 +387,17 @@ window.__ModuleLoader__.load({
       [SURFACE.EDITOR]: 'openModeEditorHint',
     }
 
-    const DEFAULTS = { caseSensitive: false, extraIgnore: '', nameLimit: 40, contentLimit: 80, openMode: SURFACE.NATIVE }
+    // The session board is on by default: it was asked for, and the switches
+    // exist so it can be taken away again without uninstalling.
+    const DEFAULT_SESSION_BOARD = { enabled: true, region: true, shortcut: true }
+    const DEFAULTS = {
+      caseSensitive: false,
+      extraIgnore: '',
+      nameLimit: 40,
+      contentLimit: 80,
+      openMode: SURFACE.NATIVE,
+      sessionBoard: DEFAULT_SESSION_BOARD,
+    }
 
     const store = {
       state: { open: false, mode: 'name', token: 0 },
@@ -354,6 +430,15 @@ window.__ModuleLoader__.load({
       if (!Number.isFinite(number)) return fallback
       return Math.min(max, Math.max(min, Math.trunc(number)))
     }
+    function normalizeSessionBoard(raw) {
+      const source = raw && typeof raw === 'object' ? raw : {}
+      const read = (value) => (value === undefined ? true : Boolean(value))
+      return {
+        enabled: read(source.enabled),
+        region: read(source.region),
+        shortcut: read(source.shortcut),
+      }
+    }
     function normalizePrefs(raw) {
       const source = raw && typeof raw === 'object' ? raw : {}
       return {
@@ -363,6 +448,7 @@ window.__ModuleLoader__.load({
         contentLimit: clampSetting(source.contentLimit, 5, 200, DEFAULTS.contentLimit),
         // Legacy `preview` (and anything unrecognised) is the native branch.
         openMode: surfaceOpenMode(source.openMode),
+        sessionBoard: normalizeSessionBoard(source.sessionBoard),
       }
     }
     function readPrefs() {
@@ -2260,6 +2346,9 @@ window.__ModuleLoader__.load({
         if (!request.open || !presence.mounted) return undefined
         function onWindowKeyDown(event) {
           if (event.key !== 'Escape' || event.defaultPrevented) return
+          // The board is a later, frame-wide overlay: while it is open it owns
+          // Escape, so one key press never closes two surfaces.
+          if (boardStore.state.open) return
           const panel = panelRef.current
           if (panel && event.target instanceof Node && panel.contains(event.target)) return
           event.preventDefault()
@@ -3834,6 +3923,347 @@ window.__ModuleLoader__.load({
         toastNode)
     }
 
+    // ── Session board ───────────────────────────────────────────────────────
+    // DSH already models the three states the board reports: `running` for a
+    // session whose Agent is working, `pendingInteraction` for one waiting on a
+    // permission, an answer or a plan review, and `completionUnread` for one
+    // that finished in the background and has not been looked at yet. The board
+    // and the counts read those same facts, so they can never disagree with the
+    // dots DSH draws in its own session list.
+    const SESSION_STATE = { PENDING: 'pending', RUNNING: 'running', FINISHED: 'finished', IDLE: 'idle' }
+    const SESSION_COLUMNS = [SESSION_STATE.PENDING, SESSION_STATE.RUNNING, SESSION_STATE.FINISHED]
+    // One state, two label lengths: the board column and the sidebar pill.
+    const SESSION_STATE_COPY = {
+      [SESSION_STATE.PENDING]: { board: 'boardPending', region: 'regionPending' },
+      [SESSION_STATE.RUNNING]: { board: 'boardRunning', region: 'regionRunning' },
+      [SESSION_STATE.FINISHED]: { board: 'boardFinished', region: 'regionFinished' },
+    }
+    const BOARD_ROW_CAP = 50
+    const BOARD_FILTER_ALL = 'all'
+
+    const boardStore = {
+      state: { open: false, filter: BOARD_FILTER_ALL },
+      listeners: new Set(),
+      snapshot() { return boardStore.state },
+      subscribe(listener) {
+        boardStore.listeners.add(listener)
+        return () => boardStore.listeners.delete(listener)
+      },
+      emit() { boardStore.listeners.forEach((listener) => listener()) },
+      open(filter) {
+        boardStore.state = { open: true, filter: filter || BOARD_FILTER_ALL }
+        boardStore.emit()
+      },
+      close() {
+        if (!boardStore.state.open) return
+        boardStore.state = { open: false, filter: BOARD_FILTER_ALL }
+        boardStore.emit()
+      },
+      toggle(filter) {
+        if (boardStore.state.open) boardStore.close()
+        else boardStore.open(filter || BOARD_FILTER_ALL)
+      },
+      setFilter(filter) {
+        boardStore.state = { open: true, filter: filter || BOARD_FILTER_ALL }
+        boardStore.emit()
+      },
+    }
+
+    function sessionStateOf(summary, status) {
+      if (status) {
+        if (status.pendingInteraction) return SESSION_STATE.PENDING
+        if (status.running === true) return SESSION_STATE.RUNNING
+        if (status.completionUnread === true) return SESSION_STATE.FINISHED
+        return SESSION_STATE.IDLE
+      }
+      // A shell without the status service still knows the running bit.
+      return summary && summary.running ? SESSION_STATE.RUNNING : SESSION_STATE.IDLE
+    }
+
+    function pendingKeyOf(kind) {
+      if (kind === 'approval') return 'pendingApproval'
+      if (kind === 'question') return 'pendingQuestion'
+      if (kind === 'plan-review') return 'pendingPlan'
+      return 'pendingOther'
+    }
+
+    // One row per Session the user owns: blank placeholders, archived rows and
+    // subagent sessions are not things to act on, so they never enter a count.
+    function workspaceTitlesOf(workspaceList) {
+      const titles = new Map()
+      const items = workspaceList && Array.isArray(workspaceList.items) ? workspaceList.items : []
+      for (const item of items) {
+        if (!item || typeof item.title !== 'string' || !Array.isArray(item.sessionIds)) continue
+        for (const id of item.sessionIds) titles.set(id, item.title)
+      }
+      return titles
+    }
+
+    function sessionRowsOf(list, statuses, archivedIds, workspaceTitles) {
+      const ids = list && Array.isArray(list.ids) ? list.ids : []
+      const byId = list && list.byId ? list.byId : {}
+      const archived = new Set(Array.isArray(archivedIds) ? archivedIds : [])
+      const rows = []
+      for (const id of ids) {
+        const summary = byId[id]
+        if (!summary || summary.blank) continue
+        if (summary.origin === 'subagent') continue
+        if (archived.has(id)) continue
+        const status = statuses && typeof statuses.get === 'function' ? statuses.get(id) : undefined
+        const pending = status && status.pendingInteraction ? String(status.pendingInteraction.kind || '') : ''
+        rows.push({
+          id,
+          title: String(summary.displayTitle || summary.title || id),
+          // DSH's workspace title when the session belongs to one, else the
+          // folder name of its cwd.
+          workspace: (workspaceTitles && workspaceTitles.get(id))
+            || baseName(String(summary.cwd || '').replace(/[\\/]+$/, '')),
+          updatedAt: Number(summary.updatedAt) || 0,
+          state: sessionStateOf(summary, status),
+          pending,
+        })
+      }
+      return rows
+    }
+
+    function sessionCountsOf(rows) {
+      const counts = { pending: 0, running: 0, finished: 0, idle: 0 }
+      for (const row of rows) counts[row.state] += 1
+      return counts
+    }
+
+    // Columns are filtered by the region's pill and by the search box, then
+    // ordered for their own job: the longest wait first, the newest activity
+    // first, the newest completion first.
+    function boardColumnsOf(rows, filter, query) {
+      const needle = String(query || '').trim().toLowerCase()
+      const matched = needle
+        ? rows.filter((row) => row.title.toLowerCase().includes(needle)
+          || row.workspace.toLowerCase().includes(needle))
+        : rows
+      const columns = []
+      for (const state of SESSION_COLUMNS) {
+        if (filter !== BOARD_FILTER_ALL && filter !== state) continue
+        const column = matched.filter((row) => row.state === state)
+        // Awaiting: the longest wait first. Running and finished: the most
+        // recent activity first — DSH exposes no completion timestamp, so
+        // `updatedAt` is the closest honest proxy.
+        column.sort(state === SESSION_STATE.PENDING
+          ? (left, right) => left.updatedAt - right.updatedAt
+          : (left, right) => right.updatedAt - left.updatedAt)
+        columns.push({ state, total: column.length, rows: column.slice(0, BOARD_ROW_CAP) })
+      }
+      return columns
+    }
+
+    function ageText(timestamp, t) {
+      const then = Number(timestamp) || 0
+      if (!then) return ''
+      const seconds = Math.max(0, Math.round((Date.now() - then) / 1000))
+      if (seconds < 60) return t('ageNow')
+      const minutes = Math.round(seconds / 60)
+      if (minutes < 60) return textOf(t, 'ageMinute', { count: minutes })
+      const hours = Math.round(minutes / 60)
+      if (hours < 24) return textOf(t, 'ageHour', { count: hours })
+      return textOf(t, 'ageDay', { count: Math.round(hours / 24) })
+    }
+
+    function sessionNoopSubscribe() { return () => {} }
+    function emptySnapshot() { return undefined }
+
+    /** Subscribe to any DSH observable (`getSnapshot` + `subscribe`). */
+    function useObservable(source) {
+      const usable = source && typeof source.getSnapshot === 'function' ? source : null
+      const subscribe = useMemo(() => (usable && typeof usable.subscribe === 'function'
+        ? (listener) => usable.subscribe(listener)
+        : sessionNoopSubscribe), [usable])
+      const getSnapshot = useMemo(() => (usable ? () => usable.getSnapshot() : emptySnapshot), [usable])
+      return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+    }
+
+    // The status and list sources are DSH services, not props: the same route
+    // the panel already uses to find the live Session, so the board works on any
+    // shell that has a session list at all.
+    function useSessionRows(ctx) {
+      const sessions = serviceOf(ctx, 'sessions')
+      const uiSession = serviceOf(ctx, 'uiSession')
+      const workspaces = serviceOf(ctx, 'workspaces')
+      const list = useObservable(sessions && sessions.list)
+      const statuses = useObservable(uiSession && uiSession.sessionStatus)
+      const workspaceList = useObservable(workspaces && workspaces.list)
+      const archivedIds = workspaceList ? workspaceList.archivedSessionIds : undefined
+      const workspaceTitles = useMemo(() => workspaceTitlesOf(workspaceList), [workspaceList])
+      return useMemo(
+        () => sessionRowsOf(list, statuses, archivedIds, workspaceTitles),
+        [list, statuses, archivedIds, workspaceTitles],
+      )
+    }
+
+    function SessionStatusRegion(props) {
+      const t = props.t
+      const settings = useSyncExternalStore(prefs.subscribe, prefs.snapshot, prefs.snapshot).sessionBoard
+      const rows = useSessionRows(props.ctx)
+      const counts = useMemo(() => sessionCountsOf(rows), [rows])
+      if (!settings.enabled || !settings.region) return null
+      const wide = props.wide !== false
+      const aria = textOf(t, 'regionAria', counts)
+      return h('div', {
+        className: 'dff-region',
+        'data-dff-region': 'true',
+        'data-wide': wide ? 'true' : 'false',
+        role: 'group',
+        'aria-label': aria,
+      },
+      h('style', { key: 'css' }, css),
+      SESSION_COLUMNS.map((state) => h('button', {
+        key: state,
+        type: 'button',
+        className: 'dff-region-pill',
+        'data-state': state,
+        'data-count': String(counts[state]),
+        'data-empty': counts[state] ? undefined : 'true',
+        disabled: counts[state] === 0,
+        title: `${t(SESSION_STATE_COPY[state].region)} ${counts[state]}`,
+        'aria-label': `${t(SESSION_STATE_COPY[state].region)} ${counts[state]}`,
+        onClick: () => boardStore.open(state),
+      },
+      h('span', { className: 'dff-region-dot', 'aria-hidden': 'true' }),
+      h('span', { className: 'dff-region-label' }, t(SESSION_STATE_COPY[state].region)),
+      h('b', { className: 'dff-region-count' }, String(counts[state])))))
+    }
+
+    function SessionBoard(props) {
+      const t = props.t
+      const ctx = props.ctx
+      const mac = useMemo(isMac, [])
+      const settings = useSyncExternalStore(prefs.subscribe, prefs.snapshot, prefs.snapshot).sessionBoard
+      const request = useSyncExternalStore(boardStore.subscribe, boardStore.snapshot, boardStore.snapshot)
+      const presence = usePresence(request.open, 140)
+      const rows = useSessionRows(ctx)
+      const counts = useMemo(() => sessionCountsOf(rows), [rows])
+      const [query, setQuery] = useState('')
+      const inputRef = useRef(null)
+
+      useEffect(() => {
+        if (!request.open) {
+          setQuery('')
+          return undefined
+        }
+        const timer = setTimeout(() => { if (inputRef.current) inputRef.current.focus() }, 30)
+        return () => clearTimeout(timer)
+      }, [request.open])
+
+      // Turning the feature off removes the board entirely: no lingering open
+      // state, and Escape goes back to whatever was listening underneath.
+      useEffect(() => {
+        if (settings.enabled) return
+        if (boardStore.state.open) boardStore.close()
+      }, [settings.enabled])
+
+      useEffect(() => {
+        if (!request.open || !settings.enabled) return undefined
+        const onKey = (event) => {
+          if (event.key !== 'Escape') return
+          event.preventDefault()
+          // The palette listens for Escape on the same window; only the
+          // topmost surface may consume the key.
+          event.stopImmediatePropagation()
+          boardStore.close()
+        }
+        window.addEventListener('keydown', onKey, true)
+        return () => window.removeEventListener('keydown', onKey, true)
+      }, [request.open])
+
+      if (!settings.enabled || !presence.mounted) return null
+
+      const columns = boardColumnsOf(rows, request.filter, query)
+      const stateLabel = (state) => t(SESSION_STATE_COPY[state].board)
+
+      function openSessionRow(id) {
+        boardStore.close()
+        const workspace = serviceOf(ctx, 'uiWorkspace')
+        if (!workspace || typeof workspace.openSession !== 'function') return
+        try {
+          workspace.openSession(id)
+        } catch { /* navigation belongs to the shell */ }
+      }
+
+      return h(React.Fragment, null,
+        h('style', { key: 'css' }, css),
+        h('div', {
+          className: 'dff-board-scrim',
+          'data-state': presence.closing ? 'closing' : 'open',
+          'aria-hidden': 'true',
+          onMouseDown: (event) => { if (event.target === event.currentTarget) boardStore.close() },
+        }),
+        h('section', {
+          className: 'dff-board',
+          'data-dff-board': 'true',
+          'data-state': presence.closing ? 'closing' : 'open',
+          role: 'dialog',
+          'aria-modal': 'true',
+          'aria-label': t('boardTitle'),
+        },
+        h('header', { className: 'dff-board-head' },
+          h('div', { className: 'dff-board-title' },
+            h('strong', null, t('boardTitle')),
+            h('span', null, textOf(t, 'boardCounts', counts))),
+          h('div', { className: 'dff-board-tools' },
+            h('label', { className: 'dff-board-search' },
+              h(SearchIcon, { size: 14 }),
+              h('input', {
+                ref: inputRef,
+                value: query,
+                placeholder: t('boardSearch'),
+                'aria-label': t('boardSearch'),
+                spellCheck: false,
+                onChange: (event) => setQuery(event.target.value),
+              })),
+            h('span', { className: 'dff-board-kbd', 'data-dff-board-hint': 'true' },
+              h(Keycaps, { keys: mac ? ['⇧', '⌘', 'G'] : ['Ctrl', 'Shift', 'G'] })),
+            h('button', {
+              type: 'button', className: 'dff-icon-btn', 'aria-label': t('close'),
+              onClick: () => boardStore.close(),
+            }, h(CloseIcon, { size: 16 })))),
+        request.filter === BOARD_FILTER_ALL ? null : h('div', { className: 'dff-board-chiprow' },
+          h('span', { className: 'dff-board-chip' },
+            textOf(t, 'boardFiltered', { state: stateLabel(request.filter) })),
+          h('button', {
+            type: 'button', className: 'dff-board-chip is-action',
+            onClick: () => boardStore.setFilter(BOARD_FILTER_ALL),
+          }, t('boardClearFilter'))),
+        h('div', { className: 'dff-board-cols', 'data-columns': String(columns.length) },
+          columns.map((column) => h('section', {
+            key: column.state,
+            className: 'dff-board-col',
+            'data-state': column.state,
+            'data-dff-board-col': column.state,
+          },
+          h('header', { className: 'dff-board-colhead' },
+            h('span', { className: 'dff-board-dot', 'aria-hidden': 'true' }),
+            h('strong', null, stateLabel(column.state)),
+            h('span', { className: 'dff-board-n', 'data-count': String(column.total) }, String(column.total))),
+          column.rows.length
+            ? h('div', { className: 'dff-board-list' }, column.rows.map((row) => h('button', {
+              key: row.id,
+              type: 'button',
+              className: 'dff-board-row',
+              'data-dff-board-row': row.id,
+              'data-state': row.state,
+              'aria-label': textOf(t, 'boardOpenSession', { title: row.title }),
+              onClick: () => openSessionRow(row.id),
+            },
+            h('span', { className: 'dff-board-rowtitle' }, row.title),
+            h('span', { className: 'dff-board-meta' },
+              row.workspace ? h('span', { className: 'dff-board-ws' }, row.workspace) : null,
+              row.state === SESSION_STATE.PENDING ? h('span', null, t(pendingKeyOf(row.pending))) : null,
+              h('span', { className: 'dff-board-age' }, ageText(row.updatedAt, t))))))
+            : h('p', { className: 'dff-board-empty' }, query ? t('boardNoMatch') : t('boardEmpty')),
+          column.total > column.rows.length
+            ? h('p', { className: 'dff-board-more' }, textOf(t, 'boardMore', { count: column.total }))
+            : null)))))
+    }
+
     function SettingsPage(props) {
       const t = props.t
       const ctx = props.ctx
@@ -3853,6 +4283,18 @@ window.__ModuleLoader__.load({
         setSavedAt(Date.now())
         if (saveTimer.current) clearTimeout(saveTimer.current)
         saveTimer.current = setTimeout(() => setSavedAt(0), 1600)
+      }
+      function boardRow(labelKey, hintKey, field, extra) {
+        return h('div', { className: 'dff-srow' },
+          h('div', { className: 'dff-srow-text' },
+            h('strong', null, t(labelKey)),
+            h('small', null, t(hintKey)),
+            extra || null),
+          h(Toggle, {
+            checked: draft.sessionBoard[field],
+            label: t(labelKey),
+            onChange: (value) => update({ sessionBoard: { ...draft.sessionBoard, [field]: value } }),
+          }))
       }
       function reset() {
         const next = { ...DEFAULTS }
@@ -3874,6 +4316,7 @@ window.__ModuleLoader__.load({
       const shortcutName = mac ? ['⌘', 'P'] : ['Ctrl', 'P']
       const shortcutContent = mac ? ['⇧', '⌘', 'F'] : ['Ctrl', 'Shift', 'F']
       const shortcutBot = mac ? ['⇧', '⌘', 'B'] : ['Ctrl', 'Shift', 'B']
+      const shortcutBoard = mac ? ['⇧', '⌘', 'G'] : ['Ctrl', 'Shift', 'G']
       // Shown only while DS Bot is part of this boot; `detect()` caches the answer.
       const botInstalled = botBridge.detect()
 
@@ -3970,7 +4413,16 @@ window.__ModuleLoader__.load({
                 onChange: (value) => update({ openMode: value }),
               })))),
 
-        botInstalled ? h('section', { className: 'dff-card', style: { '--i': 3 }, 'data-dff-bot': 'true' },
+        h('section', { className: 'dff-card', style: { '--i': 3 }, 'data-dff-board-settings': 'true' },
+          h('div', { className: 'dff-card-head' },
+            h('h3', null, t('settingsBoard')),
+            h('p', null, t('settingsBoardHint'))),
+          h('div', { className: 'dff-card-body' },
+            boardRow('settingsBoardEnabled', 'settingsBoardEnabledHint', 'enabled'),
+            boardRow('settingsBoardRegion', 'settingsBoardRegionHint', 'region'),
+            boardRow('settingsBoardShortcut', 'settingsBoardShortcutHint', 'shortcut', h(Keycaps, { keys: shortcutBoard })))),
+
+        botInstalled ? h('section', { className: 'dff-card', style: { '--i': 4 }, 'data-dff-bot': 'true' },
           h('div', { className: 'dff-card-head' },
             h('h3', null, t('settingsBot')),
             h('p', null, t('settingsBotHint'))),
@@ -4971,8 +5423,178 @@ window.__ModuleLoader__.load({
         .dff-rootpath { display: none; }
       }
 
+      /* ── Session status region (sidebar foot) ───────────────────────────── */
+      .dff-region { display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; min-width: 0; padding: 7px 2px 2px; }
+      .dff-region-pill {
+        display: inline-flex; align-items: center; gap: 4px;
+        flex: none; height: 24px; padding: 0 7px; border: 1px solid transparent; border-radius: 999px;
+        background: transparent; color: var(--dsw-alias-label-secondary);
+        font: inherit; font-size: 11px; font-weight: 500; line-height: 1; white-space: nowrap;
+        cursor: pointer; transition: background var(--ds-transition-duration-fast) ease;
+      }
+      .dff-region-dot { flex: none; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+      .dff-region-count { font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+      .dff-region-pill[data-state="pending"] {
+        color: var(--dsw-alias-state-warn-label);
+        background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 13%, transparent);
+        border-color: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 26%, transparent);
+      }
+      .dff-region-pill[data-state="running"] {
+        color: var(--dsw-alias-state-business-primary);
+        background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 11%, transparent);
+        border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 24%, transparent);
+      }
+      .dff-region-pill[data-state="finished"] {
+        color: var(--dsw-alias-state-success-primary);
+        background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 11%, transparent);
+        border-color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 24%, transparent);
+      }
+      .dff-region-pill:hover:not(:disabled) { filter: brightness(0.97); }
+      .dff-region-pill:focus-visible { outline: 2px solid color-mix(in srgb, var(--dsw-alias-state-business-primary) 60%, transparent); outline-offset: 1px; }
+      .dff-region-pill:disabled {
+        cursor: default;
+        background: transparent;
+        border-color: var(--dsw-alias-border-l1);
+        color: var(--dsw-alias-label-tertiary);
+      }
+      .dff-region-pill:disabled .dff-region-dot { opacity: 0.45; }
+      .dff-region[data-wide="false"] { flex-direction: column; gap: 5px; padding: 4px 0 2px; }
+      .dff-region[data-wide="false"] .dff-region-pill {
+        height: 16px; padding: 0; gap: 3px; border: 0; background: transparent;
+        justify-content: center; align-items: center;
+      }
+      .dff-region[data-wide="false"] .dff-region-label { display: none; }
+      .dff-region[data-wide="false"] .dff-region-count { font-size: 10px; }
+
+      /* ── Session board ─────────────────────────────────────────────────── */
+      .dff-board-scrim, .dff-board { pointer-events: auto; }
+      .dff-board-scrim {
+        position: fixed; inset: 0; z-index: 62;
+        /* Lighter than the palette's mask on purpose: the board is a lens on
+           the whole app, and the sidebar counts stay legible behind it. */
+        background: color-mix(in srgb, var(--dsw-alias-bg-mask-2) 46%, transparent);
+        -webkit-backdrop-filter: blur(3px) saturate(1.02);
+        backdrop-filter: blur(3px) saturate(1.02);
+        animation: dff-fade 160ms ease-out both;
+      }
+      .dff-board-scrim[data-state="closing"] { animation: dff-fade-out 120ms ease-in both; }
+      .dff-board {
+        position: fixed; z-index: 63; top: 10vh; left: 50%;
+        display: flex; flex-direction: column;
+        width: min(1040px, calc(100vw - 72px));
+        max-height: min(78vh, 720px);
+        border: 1px solid var(--dsw-alias-border-l2);
+        border-radius: 18px;
+        background: var(--dsw-alias-bg-overlay);
+        box-shadow: 0 24px 64px -12px rgba(0, 0, 0, .4);
+        overflow: hidden;
+        color: var(--dsw-alias-label-primary);
+        transform: translateX(-50%);
+        animation: dff-board-in 180ms cubic-bezier(.16, 1, .3, 1) both;
+      }
+      .dff-board[data-state="closing"] { animation: dff-board-out 120ms ease-in both; }
+      @keyframes dff-board-in {
+        from { opacity: 0; transform: translateX(-50%) translateY(10px) scale(.97); }
+        to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+      }
+      @keyframes dff-board-out {
+        from { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+        to { opacity: 0; transform: translateX(-50%) translateY(6px) scale(.98); }
+      }
+      .dff-board-head {
+        display: flex; align-items: center; gap: 14px; flex: none;
+        height: 62px; padding: 0 14px 0 20px;
+        border-bottom: 1px solid var(--dsw-alias-border-l1);
+      }
+      .dff-board-title { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+      .dff-board-title strong { font-size: 14px; font-weight: 600; letter-spacing: -.01em; }
+      .dff-board-title span {
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        color: var(--dsw-alias-label-tertiary); font-size: 11.5px;
+      }
+      .dff-board-tools { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+      .dff-board-search {
+        display: flex; align-items: center; gap: 6px;
+        width: 196px; height: 28px; padding: 0 9px;
+        border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px;
+        background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-tertiary);
+      }
+      .dff-board-search input {
+        flex: 1; min-width: 0; border: 0; outline: 0; background: transparent;
+        color: var(--dsw-alias-label-primary); font: inherit; font-size: 12px;
+      }
+      .dff-board-search input::placeholder { color: var(--dsw-alias-label-tertiary); }
+      .dff-board-search:focus-within { border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 55%, transparent); }
+      .dff-board-kbd { color: var(--dsw-alias-label-tertiary); }
+      .dff-board-chiprow { display: flex; align-items: center; gap: 8px; flex: none; padding: 9px 20px 0; }
+      .dff-board-chip {
+        display: inline-flex; align-items: center; height: 22px; padding: 0 9px;
+        border-radius: 999px; background: var(--dsw-alias-bg-module-platform);
+        color: var(--dsw-alias-label-secondary); font-size: 11px;
+      }
+      .dff-board-chip.is-action {
+        padding: 0 4px; border: 0; background: transparent; cursor: pointer;
+        color: var(--dsw-alias-link); font: inherit; font-size: 11px;
+      }
+      .dff-board-cols {
+        display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px;
+        padding: 12px 16px 16px; overflow: auto; min-height: 0;
+      }
+      .dff-board-cols[data-columns="1"] { grid-template-columns: minmax(0, 1fr); }
+      .dff-board-col {
+        display: flex; flex-direction: column; min-height: 0;
+        border: 1px solid var(--dsw-alias-border-l1); border-radius: 13px;
+        background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 60%, transparent);
+      }
+      .dff-board-colhead { display: flex; align-items: center; gap: 7px; padding: 11px 12px 9px; }
+      .dff-board-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; }
+      .dff-board-col[data-state="pending"] .dff-board-dot { background: var(--dsw-alias-state-warn-primary); }
+      .dff-board-col[data-state="running"] .dff-board-dot { background: var(--dsw-alias-state-business-primary); }
+      .dff-board-col[data-state="finished"] .dff-board-dot { background: var(--dsw-alias-state-success-primary); }
+      .dff-board-colhead strong { font-size: 12.5px; font-weight: 600; }
+      .dff-board-n {
+        margin-left: auto; min-width: 20px; height: 18px; padding: 0 6px;
+        display: inline-flex; align-items: center; justify-content: center;
+        border-radius: 999px; background: var(--dsw-alias-bg-module-platform);
+        color: var(--dsw-alias-label-secondary); font-size: 11px; font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+      .dff-board-list { display: flex; flex-direction: column; gap: 7px; padding: 0 9px 9px; overflow: auto; }
+      .dff-board-row {
+        display: flex; flex-direction: column; gap: 5px; width: 100%;
+        padding: 9px 10px; border: 1px solid var(--dsw-alias-border-l1); border-radius: 10px;
+        background: var(--dsw-alias-bg-layer-1); color: inherit; font: inherit;
+        text-align: left; cursor: pointer;
+        transition: background var(--ds-transition-duration-fast) ease, border-color var(--ds-transition-duration-fast) ease;
+      }
+      .dff-board-row:hover { background: var(--dsw-alias-interactive-bg-hover); border-color: var(--dsw-alias-border-l2); }
+      .dff-board-row:focus-visible { outline: 2px solid color-mix(in srgb, var(--dsw-alias-state-business-primary) 60%, transparent); outline-offset: 1px; }
+      .dff-board-rowtitle {
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        color: var(--dsw-alias-label-primary); font-size: 12.5px;
+      }
+      .dff-board-meta { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--dsw-alias-label-tertiary); font-size: 10.5px; }
+      .dff-board-ws {
+        max-width: 60%; padding: 1px 5px; border-radius: 4px;
+        background: var(--dsw-alias-bg-module-platform);
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      .dff-board-age { margin-left: auto; flex: none; }
+      .dff-board-empty { margin: 4px 2px 12px; color: var(--dsw-alias-label-tertiary); font-size: 11.5px; }
+      .dff-board-more { margin: 0 2px 10px; color: var(--dsw-alias-label-tertiary); font-size: 10.5px; }
+
+      @media (max-width: 1080px) {
+        .dff-board { top: 6vh; width: calc(100vw - 32px); max-height: 84vh; }
+        /* One column: a plain flex stack, so each section keeps its own rows
+           and the panel scrolls instead of clipping every third card. */
+        .dff-board-cols { display: flex; flex-direction: column; }
+        .dff-board-col { flex: none; }
+        .dff-board-search { width: 150px; }
+      }
+
       @media (prefers-reduced-motion: reduce) {
         .dff-scrim, .dff-panel, .dff-view, .dff-result, .dff-card, .dff-menu, .dff-banner,
+        .dff-board, .dff-board-scrim, .dff-board-row,
         .dff-empty, .dff-msg, .dff-toast, .dff-skeleton-row, .dff-spin, .dff-progress-bar, .dff-find,
         .dff-editor-state[data-state="dirty"] .dff-dot {
           animation: none !important;
@@ -5034,6 +5656,15 @@ window.__ModuleLoader__.load({
                 ['browse files', 'file browser', '目录浏览'],
                 () => store.openSearch('name'),
               )))
+              // The session board command claims no default key either: ⇧⌘G is
+              // served by this plugin's own listener below, so a collision with
+              // another plugin's default can never break the boot.
+              scoped.effect(() => register(shortcut(
+                'sessions.board',
+                () => t('shortcutBoard'),
+                ['session board', 'sessions', '会话看板', '看板'],
+                () => { if (prefs.state.sessionBoard.enabled) boardStore.toggle(BOARD_FILTER_ALL) },
+              )))
               if (botReady) {
                 scoped.effect(() => register(shortcut(
                   'files.toggleBotMode',
@@ -5047,6 +5678,21 @@ window.__ModuleLoader__.load({
           ctx.effect(() => {
             document.addEventListener('keydown', onVsCodeKey, true)
             return () => document.removeEventListener('keydown', onVsCodeKey, true)
+          })
+          // ⇧⌘G / Ctrl+Shift+G: the plugin's own listener, gated by the settings
+          // card, so the shortcut never depends on DSH's registry.
+          ctx.effect(() => {
+            const onBoardKey = (event) => {
+              if (!(event.metaKey || event.ctrlKey) || !event.shiftKey) return
+              if (String(event.key || '').toLowerCase() !== 'g') return
+              const settings = prefs.state.sessionBoard
+              if (!settings.enabled || !settings.shortcut) return
+              event.preventDefault()
+              event.stopPropagation()
+              boardStore.toggle(BOARD_FILTER_ALL)
+            }
+            document.addEventListener('keydown', onBoardKey, true)
+            return () => document.removeEventListener('keydown', onBoardKey, true)
           })
           if (botReady) {
             ctx.effect(() => {
@@ -5062,6 +5708,16 @@ window.__ModuleLoader__.load({
           ctx.slots.inject('settings.section', () => ctx.slots.register({
             name: 'settings.section', id: 'file-finder', order: 18, label: () => t('settingsTitle'),
           }, Settings))
+          // The counts sit beside Settings at the sidebar foot; the board is a
+          // frame-wide overlay of its own, additive to the shipped entries.
+          const SessionRegion = (props) => h(SessionStatusRegion, { ...props, ctx, t })
+          const SessionBoardView = (props) => h(SessionBoard, { ...props, ctx, t })
+          ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
+            name: 'sidebar.footer.action', id: 'file-finder-sessions', order: 30,
+          }, SessionRegion))
+          ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+            name: 'shell.overlay', id: 'file-finder-board', order: 41,
+          }, SessionBoardView))
         }
       },
     }

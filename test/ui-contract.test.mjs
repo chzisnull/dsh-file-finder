@@ -314,3 +314,49 @@ test('the Desktop opener stays off the agent tool and keeps the host refusal lis
   assert.match(host, /export function isBlockedForDesktopOpener\(/)
   assert.doesNotMatch(source, /'command', 'workflow'/, 'the client must not keep its own blocked list')
 })
+
+test('the session board is an additive sidebar and overlay surface', () => {
+  // Two additive seats only: the sidebar foot action and a frame-wide overlay
+  // entry with its own id. Nothing in DSH's registries is claimed or shadowed.
+  assert.match(source, /name: 'sidebar\.footer\.action', id: 'file-finder-sessions'/)
+  assert.match(source, /name: 'shell\.overlay', id: 'file-finder-board'/)
+  assert.doesNotMatch(source, /sidebarRightTabs|documentPreviews/)
+  // The command exists and is registered like every other one, through the
+  // shared helper whose defaults are empty (boot-safety checks the map itself).
+  assert.match(source, /'sessions\.board'/)
+  assert.match(source, /resolve: \(\) => \(\{ status: 'handled', run \}\)/)
+  // The three counts are DSH's own status facts, never a new store, and the
+  // sessions the user cannot act on stay out.
+  assert.match(source, /completionUnread/)
+  assert.match(source, /pendingInteraction/)
+  assert.match(source, /origin === 'subagent'/)
+  assert.match(source, /archivedSessionIds/)
+  assert.match(source, /if \(!summary \|\| summary\.blank\) continue/)
+  assert.match(source, /BOARD_FILTER_ALL/)
+  // Defaults and the three switches live in the normalised preference object.
+  assert.match(source, /DEFAULT_SESSION_BOARD = \{ enabled: true, region: true, shortcut: true \}/)
+  assert.match(source, /normalizeSessionBoard/)
+  for (const key of [
+    'boardTitle', 'boardPending', 'boardRunning', 'boardFinished',
+    'settingsBoard', 'settingsBoardEnabled', 'settingsBoardRegion', 'settingsBoardShortcut',
+    'regionPending', 'regionRunning', 'regionFinished',
+  ]) {
+    assert.match(source, new RegExp(`${key}: '[^']+'`), `${key} must be localized`)
+  }
+  // Both count templates name the same three placeholders the counts object
+  // carries, so a rename cannot silently blank a number.
+  assert.match(source, /boardCounts: '\{pending\}[^']*\{running\}[^']*\{finished\}[^']*'/)
+  assert.match(source, /regionAria: '[^']*\{pending\}[^']*\{running\}[^']*\{finished\}[^']*'/)
+  // The glossary's third state is "finished"; no surface may call it "done".
+  assert.doesNotMatch(source, /boardDone|regionDone|SESSION_STATE\.DONE/)
+  assert.doesNotMatch(source, /data-state="done"/)
+})
+
+test('the board navigates through the documented workspace service', () => {
+  assert.match(source, /serviceOf\(ctx, 'uiWorkspace'\)/)
+  assert.match(source, /workspace\.openSession\(id\)/)
+  // Counts and rows come from the session services, not from a private copy.
+  assert.match(source, /serviceOf\(ctx, 'sessions'\)/)
+  assert.match(source, /serviceOf\(ctx, 'uiSession'\)/)
+  assert.match(source, /sessionStatus/)
+})
