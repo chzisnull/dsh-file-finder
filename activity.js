@@ -22,6 +22,9 @@ const ID_LIMIT = 200
 const MAX_PARENT_DEPTH = 64
 const MAX_BUFFERED_SESSIONS = 4096
 const MAX_SETTLE_ROUNDS = 32
+// A slow persistence listing must not hold the activity fiber open forever;
+// events arriving during the wait are buffered either way.
+const HEADER_WAIT_MS = 1500
 
 /**
  * Key durable events. Everything else (`step/*`, `tool/*`,
@@ -172,7 +175,6 @@ class SessionActivity {
     this.mountToken = 0
     this.disposed = false
     this.disposePromise = undefined
-    this.refreshPromise = undefined
     this.listenerOff = undefined
 
     this.installListener()
@@ -284,10 +286,12 @@ class SessionActivity {
   }
 
   /**
-   * Walk `header.parentSession` to the root. The walk stops at the highest
-   * known ancestor (a missing parent is data, not an error), breaks arbitrary
-   * cycles, and returns one canonical member for every node of a cycle so a
-   * read from either side lands on the same record.
+   * Walk `header.parentSession` to the root. Only a subagent belongs to the
+   * session above it: `parentSession` also records fork lineage, and a fork the
+   * user opened is a session of its own, not work happening in its source. The
+   * walk stops at the highest known ancestor (a missing parent is data, not an
+   * error), breaks arbitrary cycles, and returns one canonical member for every
+   * node of a cycle so a read from either side lands on the same record.
    */
   resolveRoot(id, header) {
     const path = []
@@ -302,6 +306,7 @@ class SessionActivity {
       }
       seen.add(current)
       path.push(current)
+      if (!currentHeader || currentHeader.origin !== 'subagent') break
       const parent = parentIdOf(currentHeader)
       if (!parent || parent === current) break
       const parentHeader = this.headerOf(parent)
@@ -406,19 +411,25 @@ class SessionActivity {
           break
         }
       }
+      // A `break` above (a vanished record or an unmounted table) can leave a
+      // waiter behind: it is never durable, so it must fail instead of hanging.
+      const left = this.waiters.get(root)
       this.waiters.delete(root)
+      if (left && left.length) {
+        const failure = storageFailure('活动记录未能写入存储')
+        for (const waiter of left) waiter.reject(failure)
+      }
       if (!failed && !this.dirty.has(root)) this.latest.delete(root)
     })()
 
     this.flushing.set(root, task)
-    task.then(
-      () => {
-        if (this.flushing.get(root) === task) this.flushing.delete(root)
-      },
-      () => {
-        if (this.flushing.get(root) === task) this.flushing.delete(root)
-      },
-    )
+    const settleTask = () => {
+      if (this.flushing.get(root) === task) this.flushing.delete(root)
+      // A merge that landed between the loop ending and this cleanup would
+      // otherwise wait for an unrelated event to be written.
+      if (this.dirty.has(root)) void this.flush(root)
+    }
+    task.then(settleTask, settleTask)
     return task
   }
 
@@ -446,21 +457,26 @@ class SessionActivity {
     }
     let listing
     try {
+      // 0.2.1-rc.5 publishes `listSessions(signal?: AbortSignal)`; honour the
+      // caller's abort while the authoritative listing is in flight.
+      if (signal && signal.aborted) throw new SessionActivityError('aborted', '请求已取消')
       listing = await query.listSessions(signal)
     } catch (error) {
+      if (error instanceof SessionActivityError) throw error
       if (signal && signal.aborted) {
         throw new SessionActivityError('aborted', '请求已取消')
       }
       throw new SessionActivityError('auth-failed', '无法读取宿主会话列表', { cause: error })
     }
+    if (!Array.isArray(listing)) {
+      throw new SessionActivityError('auth-failed', '宿主会话列表格式不正确，拒绝访问')
+    }
     const headers = new Map()
-    if (Array.isArray(listing)) {
-      for (const entry of listing) {
-        const header = entry && entry.header ? entry.header : entry
-        if (!header || typeof header !== 'object') continue
-        if (typeof header.id !== 'string' || !header.id) continue
-        headers.set(header.id, header)
-      }
+    for (const entry of listing) {
+      const header = entry && entry.header ? entry.header : entry
+      if (!header || typeof header !== 'object') continue
+      if (typeof header.id !== 'string' || !header.id) continue
+      headers.set(header.id, header)
     }
     this.headers = headers
     return headers
@@ -561,6 +577,7 @@ class SessionActivity {
   }
 
   async refreshHeaders() {
+    if (this.disposed) return
     const query = this.service('sessionQuery')
     if (!query || typeof query.listSessions !== 'function') return
     let listing
@@ -570,7 +587,7 @@ class SessionActivity {
       this.warn('could not cache session headers', error)
       return
     }
-    if (!Array.isArray(listing)) return
+    if (this.disposed || !Array.isArray(listing)) return
     const headers = new Map()
     for (const entry of listing) {
       const header = entry && entry.header ? entry.header : entry
@@ -579,6 +596,26 @@ class SessionActivity {
       headers.set(header.id, header)
     }
     this.headers = headers
+  }
+
+  /**
+   * Wait a bounded time for the initial header snapshot. The refresh keeps
+   * running in the background if the listing is slow; an event that needs a
+   * cold parent just falls back to the highest live ancestor until it lands.
+   */
+  async waitForInitialHeaders() {
+    let timer
+    try {
+      await Promise.race([
+        this.refreshHeaders(),
+        new Promise((resolve) => {
+          timer = setTimeout(resolve, HEADER_WAIT_MS)
+          if (timer && typeof timer.unref === 'function') timer.unref()
+        }),
+      ])
+    } finally {
+      if (timer !== undefined) clearTimeout(timer)
+    }
   }
 
   mount(scoped) {
@@ -636,14 +673,24 @@ class SessionActivity {
       }
       this.table = table
       this.domain = domain
+      // Load the authoritative header map before declaring ready: a buffered
+      // subagent event may need a cold parent that is no longer live, and an
+      // event emitted during this wait is still buffered, not dropped. The
+      // wait is bounded so a slow listing cannot pin the fiber forever.
+      await this.waitForInitialHeaders()
+      if (this.disposed || token !== this.mountToken) {
+        this.table = undefined
+        this.domain = undefined
+        try {
+          await domain.close()
+        } catch (error) {
+          this.warn('could not close an abandoned activity domain', error)
+        }
+        return
+      }
       this.phase = 'ready'
       this.lastError = undefined
       this.drain()
-      if (!this.refreshPromise) {
-        this.refreshPromise = this.refreshHeaders().finally(() => {
-          this.refreshPromise = undefined
-        })
-      }
     } catch (error) {
       this.lastError = error
       this.phase = 'unavailable'

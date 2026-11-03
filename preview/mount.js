@@ -303,6 +303,10 @@ export function rankName(query, displayPath, options = {}) {
     return needle === 'zzzznomatch' || needle === 'nothing-here' || needle === 'no-match'
   }
 
+  // Filled in once the session fixture exists; the host-activity mock below
+  // needs the fixture's session ids but the fetch shim is installed first.
+  let sessionFixture = null
+
   window.fetch = function previewFetch(input, init) {
     const requestUrl = typeof input === 'string' ? input : (input && input.url) || ''
     let path = requestUrl
@@ -376,6 +380,18 @@ export function rankName(query, displayPath, options = {}) {
         kind: image ? 'image' : html ? 'html' : 'text',
       }, 120)
     }
+    if (path === '/dsh-file-finder/session-activity') {
+      if (body.action === 'visit') return jsonResponse({ ok: true, visitedAt: Date.now() }, 60)
+      // The preview has no host history, so every record is empty and the panel
+      // falls back to the approximate summary time — the same thing a fresh
+      // install shows. Unknown ids are simply not echoed, like the real route.
+      const byId = sessionFixture && sessionFixture.list.byId ? sessionFixture.list.byId : {}
+      const records = {}
+      for (const id of Array.isArray(body.ids) ? body.ids : []) {
+        if (byId[id]) records[id] = { activityAt: 0, visitedAt: 0 }
+      }
+      return jsonResponse({ ok: true, records }, 40)
+    }
     if (path === '/dsh-file-finder/write') {
       if (String(body.path || '').includes('client.js')) {
         return jsonResponse({
@@ -417,6 +433,7 @@ export function rankName(query, displayPath, options = {}) {
   // One dataset for every preview surface (preview/fixtures/sessions.js), so the
   // screenshots and the browser checks cannot drift apart.
   const fixture = window.dffSessionFixture.create({ lang })
+  sessionFixture = fixture
   const sessions = { list: observable(fixture.list) }
   const uiSession = { sessionStatus: observable(fixture.statuses) }
   const workspaces = { list: observable(fixture.workspaces) }

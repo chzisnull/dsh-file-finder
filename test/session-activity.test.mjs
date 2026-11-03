@@ -108,10 +108,14 @@ function createFakeStorage(root, options = {}) {
 }
 
 // ── Fake Cordis host ────────────────────────────────────────────────────────
-function session(id, parentSession) {
+function session(id, parentSession, origin) {
   return {
     id,
-    header: { id, ...(parentSession === undefined ? {} : { parentSession }) },
+    header: {
+      id,
+      ...(parentSession === undefined ? {} : { parentSession }),
+      ...(origin === undefined ? {} : { origin }),
+    },
   }
 }
 
@@ -422,6 +426,25 @@ test('a cold persisted session can be visited and the host clock wins', async (t
   await host.dispose()
 })
 
+test('a malformed authoritative listing fails closed instead of reading as empty', async () => {
+  const host = createHost({
+    sessions: [session('s1')],
+    query: {
+      calls: 0,
+      async listSessions() {
+        this.calls += 1
+        return undefined
+      },
+    },
+  })
+  plugin.apply(host)
+  await host.injectReady
+  const answer = await call(host, { action: 'read', ids: ['s1'] })
+  assert.equal(answer.value.ok, false)
+  assert.equal(answer.value.code, 'auth-failed')
+  await host.dispose()
+})
+
 test('a visit to an id the authoritative corpus does not list is refused', async () => {
   const host = createHost({
     sessions: [session('s1')],
@@ -445,8 +468,8 @@ test('a visit to an id the authoritative corpus does not list is refused', async
 test('key events roll up through parentSession and never persist a body', async (t) => {
   const root = await temporaryRoot(t)
   const parent = session('p')
-  const child = session('c', 'p')
-  const grandchild = session('g', 'c')
+  const child = session('c', 'p', 'subagent')
+  const grandchild = session('g', 'c', 'subagent')
   const host = createHost({ storageRoot: root, sessions: [parent, child, grandchild] })
   plugin.apply(host)
   await host.injectReady
@@ -455,7 +478,7 @@ test('key events roll up through parentSession and never persist a body', async 
     clock.set(100)
     // A different object with the same id: resolution must use ids, not object identity.
     host.emitSessionEvent(
-      { id: 'g', header: { id: 'g', parentSession: 'c' } },
+      { id: 'g', header: { id: 'g', parentSession: 'c', origin: 'subagent' } },
       {
         type: 'assistant/message',
         data: {
@@ -509,12 +532,43 @@ test('key events roll up through parentSession and never persist a body', async 
   await host.dispose()
 })
 
+test('a live subagent reaches a cold parent through the authoritative headers', async (t) => {
+  const root = await temporaryRoot(t)
+  const child = session('c', 'p', 'subagent')
+  const host = createHost({
+    storageRoot: root,
+    sessions: [child],
+    query: {
+      calls: 0,
+      async listSessions() {
+        this.calls += 1
+        return [
+          { header: { id: 'p' }, live: false, persisted: true },
+          { header: child.header, live: true, persisted: false },
+        ]
+      },
+    },
+  })
+  plugin.apply(host)
+  await host.injectReady
+
+  await withClock(async (clock) => {
+    clock.set(321)
+    host.emitSessionEvent(child, { type: 'assistant/message', data: {} })
+    const read = await call(host, { action: 'read', ids: ['p', 'c'] })
+    assert.equal(read.value.records.p.activityAt, 321)
+    assert.equal(read.value.records.c.activityAt, 321)
+  })
+
+  await host.dispose()
+})
+
 test('parent chains handle cycles, self-parents and missing parents', async (t) => {
   const root = await temporaryRoot(t)
-  const x = session('x', 'y')
-  const y = session('y', 'x')
-  const self = session('self', 'self')
-  const orphan = session('o', 'ghost')
+  const x = session('x', 'y', 'subagent')
+  const y = session('y', 'x', 'subagent')
+  const self = session('self', 'self', 'subagent')
+  const orphan = session('o', 'ghost', 'subagent')
   const host = createHost({ storageRoot: root, sessions: [x, y, self, orphan] })
   plugin.apply(host)
   await host.injectReady
@@ -537,6 +591,25 @@ test('parent chains handle cycles, self-parents and missing parents', async (t) 
     read = await call(host, { action: 'read', ids: ['o', 'ghost'] })
     assert.equal(read.value.records.o.activityAt, 300)
     assert.equal(read.value.records.ghost, undefined, 'an unlisted ancestor is never exposed')
+  })
+
+  await host.dispose()
+})
+
+test('a user fork keeps its own activity instead of folding into its source', async (t) => {
+  const root = await temporaryRoot(t)
+  const source = session('source')
+  const fork = session('fork', 'source', 'fork')
+  const host = createHost({ storageRoot: root, sessions: [source, fork] })
+  plugin.apply(host)
+  await host.injectReady
+
+  await withClock(async (clock) => {
+    clock.set(700)
+    host.emitSessionEvent(fork, { type: 'assistant/message', data: {} })
+    const read = await call(host, { action: 'read', ids: ['source', 'fork'] })
+    assert.equal(read.value.records.fork.activityAt, 700, 'the fork is its own session')
+    assert.equal(read.value.records.source, undefined, 'a fork is lineage, not subagent activity')
   })
 
   await host.dispose()

@@ -999,9 +999,11 @@ the same version the shipped storage domain uses.
 step/tool-stream records are ignored: they would move the list while an Agent
 streams without a real turn boundary. Subagent sessions bubble up along
 `session.header.parentSession` to the root session, so a parent ranks by its
-tree's work; the walk has a depth limit and cycle guard. The recorded stamp is
-the host clock at receipt, not `event.time`, and every write is `Math.max`, so a
-queued or replayed event can never move a record backwards.
+tree's work; the walk only follows a session whose `header.origin` is
+`subagent`, because `parentSession` also records fork lineage and a fork the
+user opened is a session of its own. It has a depth limit and a cycle guard. The
+recorded stamp is the host clock at receipt, not `event.time`, and every write is
+`Math.max`, so a queued or replayed event can never move a record backwards.
 
 **Access time.** The browser reports `{action:'visit', id}` when the main view
 switches to another session; the host stamps it with its own clock. The client
@@ -1022,17 +1024,21 @@ routes, and deliberately **absent from the agent tool's action enum** (the
 existing file routes pass when `connection` is absent, which is why this route
 does not share their helper). Rejections from `connection.requestRejection` are
 forwarded. Both actions are then checked against the host's authoritative
-session corpus (`ctx.sessionQuery.listSessions()`), so an id that is not a real,
-visible session is refused before anything is written — the route has no
+session corpus (`ctx.sessionQuery.listSessions()`): a `visit` for an id that
+corpus does not list is refused with `not-found`, and a `read` simply leaves
+unknown ids out of the answer instead of confirming they exist. The route has no
 "list everything" mode and returns timestamps only, which is what keeps it from
 becoming a metadata export.
 
 **Failure modes are visible.** `{ ok: false, code }` with `storage-unavailable`,
-`storage-failed`, `auth-unavailable`, `not-found`, `too-many`, `invalid-id` or
-`too-large`; the panel shows a `data-dff-recent-notice` line and falls back to
+`storage-failed`, `auth-unavailable`, `auth-failed`, `not-found`, `too-many`,
+`invalid-id`, `invalid-body`, `unknown-action`, `aborted`, `too-large` or
+`internal`; the panel shows a `data-dff-recent-notice` line and falls back to
 the approximate summary time rather than presenting the fallback as persisted.
 Writes are coalesced per root (one in-flight chain, never a growing queue) and
-flushed on unmount; a `visit` answers only after its write is durable.
+flushed on unmount; a `visit` answers only after its write is durable, and a
+visit the page is still waiting on is labelled approximate until the host's own
+stamp replaces its local guess.
 
 **What cannot be restored.** Read state, task success/failure, the exact
 completion moment, and anything that happened while the page was not loaded.

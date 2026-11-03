@@ -106,7 +106,9 @@ The time the plugin records when the user opens a session from the board or
 switches the main view to another one. The first view restored at startup is not
 a visit, and anything done while the page is not loaded cannot be observed, so
 it is an approximation. It is the plugin's own persisted fact, not a read
-receipt from DSH and not DSH's `updatedAt`.
+receipt from DSH and not DSH's `updatedAt`. The code names the act a **visit**
+(the route action, `createVisitTracker`) and the stored stamp `visitedAt`; both
+mean this Access time.
 _Avoid_: last opened, read state, updatedAt
 
 **Desktop opener**:

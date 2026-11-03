@@ -58,6 +58,11 @@ window, a new shortcut, or a fourth column.
   counted as a visit.
 - The board still ships with its existing three switches; turning the main one
   off removes both tabs, the counts, the Recent entry and the shortcut together.
+  It does not stop or erase the host-side recording while the plugin itself is
+  loaded: turning the board back on finds the times that were gathered meanwhile.
+- The open Recent tab refreshes the host activity on a slow poll, because DSH
+  exposes no client observable for "the Agent did something in a session you are
+  not watching"; that read is bounded and stays off the token stream.
 - The plugin now owns a small persistence contract for activity and access
   times. It stays a cache of plugin facts next to DSH's sessions, never a
   replacement for them, and a missing or failed host read stays visible.

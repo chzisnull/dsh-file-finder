@@ -854,17 +854,16 @@ function connectionOf(ctx) {
 
 function registerSessionActivityRoute(ctx, activity) {
   const path = '/dsh-file-finder/session-activity'
+  const refuse = (res) => {
+    sendJson(res, 503, { ok: false, error: '连接服务不可用，拒绝访问', code: 'connection-unavailable' })
+  }
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact',
     path,
     handler: async (req, res) => {
       const connection = connectionOf(ctx)
       if (!connection || typeof connection.requestRejection !== 'function') {
-        sendJson(res, 503, {
-          ok: false,
-          error: '连接服务不可用，拒绝访问',
-          code: 'connection-unavailable',
-        })
+        refuse(res)
         return
       }
 
@@ -872,11 +871,7 @@ function registerSessionActivityRoute(ctx, activity) {
       try {
         rejection = connection.requestRejection(req)
       } catch {
-        sendJson(res, 503, {
-          ok: false,
-          error: '连接服务不可用，拒绝访问',
-          code: 'connection-unavailable',
-        })
+        refuse(res)
         return
       }
       if (rejection !== undefined) {

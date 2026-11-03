@@ -37,7 +37,7 @@ Each run rewrites `preview/shots/`:
 | `settings-wide-{light,dark}.png` | 1440×900 @2x | settings.section page (wide) |
 | `settings-tall-{light,dark}.png` | 1100×1480 @2x | whole settings page for review (all cards + footer) |
 | `session-region-{light,dark}.png` | 1440×900 @2x | the three session counts at the sidebar foot, board closed |
-| `session-board-{light,dark}.png` | 1440×900 @2x | the session board open over the app, three columns |
+| `session-board-{light,dark}.png` | 1440×900 @2x | the board open over the app, Status board tab: three columns, with the two tabs and the sidebar Recent entry |
 | `session-board-narrow-{light,dark}.png` | 1024×860 @2x | the same board with its columns stacked into one |
 | `palette-open-motion-light.png` | 1440×900 @2x | extra frame with motion enabled (opening) |
 
@@ -92,7 +92,7 @@ http://127.0.0.1:<port>/preview/index.html?theme=light&motion=off#settings
 | `#editor-dirty` | editor made dirty, then "back to search" so the confirm banner shows |
 | `#settings` | `settings.section` mounted on a fake DSH settings page |
 | `#session-region` | the fake session dataset counted in the sidebar foot (`sidebar.footer.action`) |
-| `#session-board` | the board overlay opened with a synthetic ⇧⌘G keydown |
+| `#session-board` | the board overlay opened with a synthetic ⇧⌘G keydown (Status board tab; the Recent tab has no capture state, its behaviour is checked in `session-board-check.html`) |
 | `#session-board-narrow` | the same board captured at 1024px, where its columns stack |
 
 Query parameters: `theme=light|dark`, `motion=off|on` (default `off`), `lang=en|zh`,
@@ -132,6 +132,7 @@ internal state, so a broken registration or shortcut is visible in the screensho
 | `POST /dsh-file-finder/read` | a realistic 35-line `index.js` |
 | `POST /dsh-file-finder/write` | success, plus a version-conflict response for `client.js` |
 | `POST /dsh-file-finder/open` | acknowledges the Desktop opener without starting an application |
+| `POST /dsh-file-finder/session-activity` | empty activity records for the fixture's sessions (the Recent tab therefore labels every time approximate, like a fresh install) and a host-stamped `visitedAt` for a visit |
 
 The page never touches the real filesystem and never reaches the network.
 

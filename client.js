@@ -4171,12 +4171,21 @@ window.__ModuleLoader__.load({
       return records
     }
 
+    function withoutKey(map, key) {
+      if (!map || typeof map !== 'object' || !(key in map)) return map || {}
+      const next = { ...map }
+      delete next[key]
+      return next
+    }
+
     // The host activity cache. It is a cache of host facts, not a second
     // session store: `records` is exactly what the narrow read route returned,
-    // plus visits this page just made. A read or visit failure stays visible,
-    // so a fallback summary time is never presented as a persisted fact.
+    // plus visits this page just made (`pendingVisits` marks the ones the host
+    // has not confirmed yet, so their local clock is labelled approximate). A
+    // read or visit failure stays visible, and a failed visit is withdrawn, so a
+    // local guess is never presented as a persisted fact.
     const activityStore = {
-      state: { records: {}, readError: false, visitError: false, reading: false },
+      state: { records: {}, pendingVisits: {}, readError: false, visitError: false, reading: false },
       listeners: new Set(),
       readSeq: 0,
       visitSeq: {},
@@ -4223,8 +4232,10 @@ window.__ModuleLoader__.load({
       },
       visit(id) {
         if (typeof id !== 'string' || !id) return Promise.resolve()
-        // Record locally at once: opening a session is the user's fact even if
-        // the host write fails. The failure flag below keeps that honest.
+        // Show the switch at once so the list does not wait on the network,
+        // but mark it pending: until the host answers, that clock is this
+        // page's guess, so the row labels it approximate instead of claiming a
+        // persisted time. A failed write withdraws the guess entirely.
         const seq = (activityStore.visitSeq[id] || 0) + 1
         activityStore.visitSeq[id] = seq
         const previous = normalizeActivityRecord(activityStore.state.records[id])
@@ -4233,6 +4244,7 @@ window.__ModuleLoader__.load({
             ...activityStore.state.records,
             [id]: { ...previous, visitedAt: Date.now() },
           },
+          pendingVisits: { ...activityStore.state.pendingVisits, [id]: true },
         })
         return post(SESSION_ACTIVITY.path, SESSION_ACTIVITY.visitBody(id))
           .then((data) => {
@@ -4244,12 +4256,17 @@ window.__ModuleLoader__.load({
             const current = normalizeActivityRecord(activityStore.state.records[id])
             activityStore.patch({
               records: { ...activityStore.state.records, [id]: { ...current, visitedAt } },
+              pendingVisits: withoutKey(activityStore.state.pendingVisits, id),
               visitError: false,
             })
           })
           .catch(() => {
             if (seq !== activityStore.visitSeq[id]) return
-            activityStore.patch({ visitError: true })
+            activityStore.patch({
+              records: { ...activityStore.state.records, [id]: previous },
+              pendingVisits: withoutKey(activityStore.state.pendingVisits, id),
+              visitError: true,
+            })
           })
       },
     }
@@ -4257,17 +4274,19 @@ window.__ModuleLoader__.load({
     // The newest fact wins. Host activity beats a visit on a tie, and a visit
     // beats the summary's `updatedAt`. A summary-only timestamp is explicitly
     // approximate: DSH exposes no completion time, so it must never be labelled
-    // as the assistant finishing or succeeding.
-    function recentTimeOf(row, records) {
+    // as the assistant finishing or succeeding. A visit the host has not
+    // confirmed yet is approximate too: its clock came from this page.
+    function recentTimeOf(row, records, pendingVisits) {
       const record = records && typeof records === 'object' ? records[row.id] : undefined
       const activityAt = Number(record && record.activityAt) || 0
       const visitedAt = Number(record && record.visitedAt) || 0
       const summaryAt = Number(row && row.updatedAt) || 0
+      const pending = Boolean(pendingVisits && pendingVisits[row.id])
       if (activityAt && activityAt >= visitedAt && activityAt >= summaryAt) {
         return { at: activityAt, source: 'activity', approximate: false }
       }
       if (visitedAt && visitedAt >= summaryAt) {
-        return { at: visitedAt, source: 'visit', approximate: false }
+        return { at: visitedAt, source: 'visit', approximate: pending }
       }
       if (summaryAt) return { at: summaryAt, source: 'summary', approximate: true }
       return { at: 0, source: '', approximate: false }
@@ -4276,14 +4295,14 @@ window.__ModuleLoader__.load({
     // Filter first, then sort and page: the search must reach the whole eligible
     // set, not just the first 50 rows. Equal timestamps keep their incoming
     // (DSH list) order, so a refresh never shuffles a tie.
-    function recentRowsOf(rows, records, query, limit) {
+    function recentRowsOf(rows, records, query, limit, pendingVisits) {
       const needle = String(query || '').trim().toLowerCase()
       const matched = []
       for (let index = 0; index < rows.length; index += 1) {
         const row = rows[index]
         if (needle && !row.title.toLowerCase().includes(needle)
           && !row.workspace.toLowerCase().includes(needle)) continue
-        const time = recentTimeOf(row, records)
+        const time = recentTimeOf(row, records, pendingVisits)
         matched.push({
           ...row,
           recentAt: time.at,
@@ -4495,7 +4514,7 @@ window.__ModuleLoader__.load({
       if (!settings.enabled || !presence.mounted) return null
 
       const columns = boardColumnsOf(rows, query)
-      const recent = recentRowsOf(rows, activity.records, query, recentLimit)
+      const recent = recentRowsOf(rows, activity.records, query, recentLimit, activity.pendingVisits)
       const stateLabel = (state) => t(SESSION_STATE_COPY[state].board)
 
       function openSessionRow(id) {
@@ -4545,16 +4564,13 @@ window.__ModuleLoader__.load({
         className: 'dff-board-tab',
         'data-dff-board-tab': value,
         'aria-selected': tab === value ? 'true' : 'false',
-        'aria-controls': `dff-board-panel-${value}`,
+        'aria-controls': 'dff-board-panel',
         tabIndex: tab === value ? 0 : -1,
         onClick: () => boardStore.setTab(value),
       }, t(labelKey))
 
       const statusPanel = h('div', {
         key: 'status',
-        id: 'dff-board-panel-status',
-        role: 'tabpanel',
-        'aria-labelledby': 'dff-board-tab-status',
         className: 'dff-board-cols',
         'data-dff-board-panel': 'status',
         'data-columns': String(columns.length),
@@ -4594,9 +4610,6 @@ window.__ModuleLoader__.load({
 
       const recentPanel = h('div', {
         key: 'recent',
-        id: 'dff-board-panel-recent',
-        role: 'tabpanel',
-        'aria-labelledby': 'dff-board-tab-recent',
         className: 'dff-recent',
         'data-dff-board-panel': 'recent',
         'data-dff-recent-total': String(recent.total),
@@ -4626,7 +4639,7 @@ window.__ModuleLoader__.load({
           h('span', { className: 'dff-recent-state', 'data-state': row.state }, stateLabel(row.state)),
           row.workspace ? h('span', { className: 'dff-board-ws' }, row.workspace) : null,
           h('span', { className: 'dff-recent-when' },
-            h('span', { className: 'dff-recent-source' }, sourceLabel(row)),
+            sourceLabel(row) ? h('span', { className: 'dff-recent-source' }, sourceLabel(row)) : null,
             h('span', { className: 'dff-recent-age' }, recentAge(row)))))))
         : h('p', { className: 'dff-board-empty' }, query ? t('boardNoMatch') : t('boardRecentEmpty')),
       recent.hasMore
@@ -4684,7 +4697,13 @@ window.__ModuleLoader__.load({
           'aria-label': t('boardTitle'),
           onKeyDown: onTabKey,
         }, tabButton('status', 'boardTabStatus'), tabButton('recent', 'boardTabRecent')),
-        tab === 'status' ? statusPanel : recentPanel))
+        h('div', {
+          // One panel element for both tabs: an inactive tab's aria-controls
+          // must not point at an element that is not rendered.
+          id: 'dff-board-panel',
+          role: 'tabpanel',
+          'aria-labelledby': `dff-board-tab-${tab}`,
+        }, tab === 'status' ? statusPanel : recentPanel)))
     }
 
     function SettingsPage(props) {

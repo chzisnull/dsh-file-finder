@@ -349,6 +349,41 @@ test('the activity adapter uses one route and reports read or visit failures', a
   }
 })
 
+test('a visit the host has not confirmed is approximate, and a failure withdraws it', async () => {
+  const originalFetch = globalThis.fetch
+  const activity = board.sessionActivity
+  const row = { id: 'v1', title: 'Visit', workspace: 'w', updatedAt: 0, state: 'idle' }
+  let release
+  globalThis.fetch = () => new Promise((resolve) => {
+    release = () => resolve(new Response(
+      JSON.stringify({ ok: true, visitedAt: 999 }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    ))
+  })
+  try {
+    const pending = activity.visit('v1')
+    const snapshot = activity.snapshot()
+    assert.equal(snapshot.pendingVisits.v1, true, 'the guess is marked until the host answers')
+    const inFlight = board.recentTimeOf(row, snapshot.records, snapshot.pendingVisits)
+    assert.equal(inFlight.source, 'visit')
+    assert.equal(inFlight.approximate, true, 'a local clock is never presented as a persisted time')
+
+    release()
+    await pending
+    const settled = activity.snapshot()
+    assert.equal(settled.pendingVisits.v1, undefined)
+    assert.equal(board.recentTimeOf(row, settled.records, settled.pendingVisits).approximate, false)
+
+    globalThis.fetch = async () => { throw new Error('offline') }
+    const previous = activity.snapshot().records.v1.visitedAt
+    await activity.visit('v1')
+    assert.equal(activity.snapshot().records.v1.visitedAt, previous, 'a failed visit is withdrawn, not kept')
+    assert.equal(activity.snapshot().visitError, true)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('the activity read batches past the host limit and merges every page', async () => {
   const batches = []
   const originalFetch = globalThis.fetch
