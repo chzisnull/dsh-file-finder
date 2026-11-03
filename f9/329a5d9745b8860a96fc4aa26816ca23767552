@@ -1,0 +1,32 @@
+GLOSSARY.md
+  h_6c8eb9d3df9b52 109-111
+activity.js
+  h_6c8eb9d3df9b52 25-27,289-294,309,414-416,418-421,426-432,460-462,465,471-473,475-479,580,590,601-620,676-690
+client.js
+  h_6c8eb9d3df9b52 4174-4180,4183-4186,4188,4235-4238,4247,4259,4265-4269,4277-4279,4284,4289,4298,4305,4517,4567,4642,4700-4706
+docs/adr/0003-recent-sessions.md
+  h_6c8eb9d3df9b52 61-65
+docs/native-integration.md
+  h_6c8eb9d3df9b52 1002-1006,1027-1029,1034-1036,1039-1041
+index.js
+  h_6c8eb9d3df9b52 857-859,866,874
+preview/README.md
+  h_6c8eb9d3df9b52 40,95,135
+preview/mount.js
+  h_6c8eb9d3df9b52 306-309,383-394,436
+test/session-activity.test.mjs
+  h_6c8eb9d3df9b52 111,114-118,429-447,471-472,481,535-565,568-571,599-617
+test/session-board.test.mjs
+  h_6c8eb9d3df9b52 352-386
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f9329a5d9745b8860a96fc4aa26816ca23767552",
+  "prompts": {},
+  "humans": {
+    "h_6c8eb9d3df9b52": {
+      "author": "caohanzhou123@163.com <caohanzhou123@163.com>"
+    }
+  }
+}
