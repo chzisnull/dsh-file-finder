@@ -126,13 +126,25 @@ window.__ModuleLoader__.load({
         shortcutBot: '切换 Bot / 经典 Agent 模式',
         boardTitle: '会话看板',
         boardSearch: '搜索会话',
+        boardTabStatus: '状态看板',
+        boardTabRecent: '最近会话',
         boardPending: '待确认',
         boardRunning: '进行中',
-        boardFinished: '已完成',
+        boardFinished: '已结束·未读',
+        boardIdle: '空闲',
         boardEmpty: '这一类现在是空的',
+        boardRecentEmpty: '最近没有可显示的会话',
         boardNoMatch: '没有匹配的会话',
         boardMore: '共 {count} 条',
-        boardCounts: '{pending} 待确认 · {running} 进行中 · {finished} 已完成',
+        boardRecentMore: '查看更多（还有 {count} 条）',
+        boardRecentUnknown: '时间未知',
+        boardRecentSourceActivity: '活动',
+        boardRecentSourceVisit: '访问',
+        boardRecentSourceSummary: '会话更新（约）',
+        boardRecentReadFailed: '无法读取宿主活动时间，时间与顺序可能不准确。',
+        boardRecentVisitFailed: '访问时间未能保存到宿主，下次打开可能沿用旧时间。',
+        recentApprox: '约 {age}',
+        boardCounts: '{pending} 待确认 · {running} 进行中 · {finished} 已结束·未读',
         boardOpenSession: '打开会话 {title}',
         pendingApproval: '等你批准',
         pendingQuestion: '等你回答',
@@ -146,15 +158,17 @@ window.__ModuleLoader__.load({
         ageDay: '{count} 天前',
         regionPending: '待确认',
         regionRunning: '进行中',
-        regionFinished: '已完成',
-        regionAria: '会话：{pending} 个待确认，{running} 个进行中，{finished} 个已完成',
+        regionFinished: '已结束·未读',
+        regionRecent: '最近',
+        regionRecentAria: '打开最近会话',
+        regionAria: '会话：{pending} 个待确认，{running} 个进行中，{finished} 个已结束·未读',
         shortcutBoard: '打开会话看板',
         settingsBoard: '会话看板',
-        settingsBoardHint: '在侧栏底部显示待确认、进行中、已完成的会话数量，⇧⌘G 打开看板。',
+        settingsBoardHint: '在侧栏底部显示待确认、进行中、已结束·未读的会话数量，以及最近会话入口；⇧⌘G 打开看板。',
         settingsBoardEnabled: '启用会话看板',
-        settingsBoardEnabledHint: '关掉后计数区域、看板和快捷键都不出现。',
+        settingsBoardEnabledHint: '关掉后计数区域、看板、最近会话和快捷键都不出现。',
         settingsBoardRegion: '显示计数区域',
-        settingsBoardRegionHint: '侧栏底部三枚胶囊；侧栏收起时变成竖排圆点。',
+        settingsBoardRegionHint: '侧栏底部的三枚状态胶囊和「最近」按钮；侧栏收起时变成竖排圆点。',
         settingsBoardShortcut: '启用 ⇧⌘G',
         settingsBoardShortcutHint: '插件自己监听这个组合键，不占用 DSH 快捷键注册表。',
         findPlaceholder: '在文件中查找…',
@@ -297,13 +311,25 @@ window.__ModuleLoader__.load({
         shortcutBot: 'Toggle Bot / classic Agent mode',
         boardTitle: 'Session board',
         boardSearch: 'Search sessions',
+        boardTabStatus: 'Status board',
+        boardTabRecent: 'Recent sessions',
         boardPending: 'Awaiting you',
         boardRunning: 'Running',
-        boardFinished: 'Finished',
+        boardFinished: 'Finished · unread',
+        boardIdle: 'Idle',
         boardEmpty: 'Nothing in this column',
+        boardRecentEmpty: 'No recent sessions',
         boardNoMatch: 'No session matches',
         boardMore: '{count} in total',
-        boardCounts: '{pending} awaiting you · {running} running · {finished} finished',
+        boardRecentMore: 'Show more ({count} left)',
+        boardRecentUnknown: 'Time unknown',
+        boardRecentSourceActivity: 'Activity',
+        boardRecentSourceVisit: 'Visited',
+        boardRecentSourceSummary: 'Updated (approx.)',
+        boardRecentReadFailed: 'Could not read host activity times; times and order may be inaccurate.',
+        boardRecentVisitFailed: 'This visit was not saved to the host; an older time may be shown next time.',
+        recentApprox: '~{age}',
+        boardCounts: '{pending} awaiting you · {running} running · {finished} finished unread',
         boardOpenSession: 'Open session {title}',
         pendingApproval: 'waiting for approval',
         pendingQuestion: 'waiting for your answer',
@@ -317,15 +343,17 @@ window.__ModuleLoader__.load({
         ageDay: '{count} d ago',
         regionPending: 'Awaiting',
         regionRunning: 'Running',
-        regionFinished: 'Finished',
-        regionAria: 'Sessions: {pending} awaiting you, {running} running, {finished} finished',
+        regionFinished: 'Finished · unread',
+        regionRecent: 'Recent',
+        regionRecentAria: 'Open recent sessions',
+        regionAria: 'Sessions: {pending} awaiting you, {running} running, {finished} finished unread',
         shortcutBoard: 'Open session board',
         settingsBoard: 'Session board',
-        settingsBoardHint: 'Shows how many sessions are awaiting you, running or finished at the sidebar foot; ⇧⌘G opens the board.',
+        settingsBoardHint: 'Shows how many sessions are awaiting you, running or finished unread at the sidebar foot, plus a recent-sessions entry; ⇧⌘G opens the board.',
         settingsBoardEnabled: 'Enable the session board',
-        settingsBoardEnabledHint: 'Turning this off removes the counts, the board and the shortcut.',
+        settingsBoardEnabledHint: 'Turning this off removes the counts, the board, recent sessions and the shortcut.',
         settingsBoardRegion: 'Show the counts',
-        settingsBoardRegionHint: 'Three pills at the sidebar foot; a stacked dot rail when the sidebar is collapsed.',
+        settingsBoardRegionHint: 'Three state pills and a Recent button at the sidebar foot; a stacked dot rail when the sidebar is collapsed.',
         settingsBoardShortcut: 'Enable ⇧⌘G',
         settingsBoardShortcutHint: 'The plugin listens for this combination itself; it claims no binding in DSH.',
         findPlaceholder: 'Find in file…',
@@ -583,25 +611,53 @@ window.__ModuleLoader__.load({
     // `dsh-resource://file/session/<id>/<path>` address needs. DSH itself
     // derives the main-view Session from `retainedBy.mainView`, walking `ids`
     // in order (ui-layout's DocumentTitle does exactly this); there is no
-    // public `current` field.
-    function sessionOf(ctx) {
-      const sessions = serviceOf(ctx, 'sessions')
-      const list = sessions && sessions.list && sessions.list.getSnapshot && sessions.list.getSnapshot()
-      if (!list || !list.byId) return { id: '', cwd: '' }
+    // public `current` field. `mainViewSessionOf` is the one scan shared by the
+    // file surface and the recent list's visit tracker.
+    function mainViewSessionOf(list) {
+      if (!list || !list.byId) return { id: '', row: null }
       const byId = list.byId
       const ids = Array.isArray(list.ids) && list.ids.length ? list.ids : Object.keys(byId)
       for (const id of ids) {
         const row = byId[id]
         if (!row || !(Number((row.retainedBy && row.retainedBy.mainView) || 0) > 0)) continue
-        return { id: typeof row.id === 'string' && row.id ? row.id : id, cwd: typeof row.cwd === 'string' ? row.cwd : '' }
+        return { id: typeof row.id === 'string' && row.id ? row.id : id, row }
       }
       // Locally known generations may be absent from `ids`.
       for (const key of Object.keys(byId)) {
         const row = byId[key]
         if (!row || !(Number((row.retainedBy && row.retainedBy.mainView) || 0) > 0)) continue
-        return { id: typeof row.id === 'string' && row.id ? row.id : key, cwd: typeof row.cwd === 'string' ? row.cwd : '' }
+        return { id: typeof row.id === 'string' && row.id ? row.id : key, row }
       }
-      return { id: '', cwd: '' }
+      return { id: '', row: null }
+    }
+
+    function sessionOf(ctx) {
+      const sessions = serviceOf(ctx, 'sessions')
+      const list = sessions && sessions.list && sessions.list.getSnapshot && sessions.list.getSnapshot()
+      const main = mainViewSessionOf(list)
+      return {
+        id: main.id,
+        cwd: main.row && typeof main.row.cwd === 'string' ? main.row.cwd : '',
+      }
+    }
+
+    function mainViewIdOf(list) {
+      return mainViewSessionOf(list).id
+    }
+
+    // The first restored main view is a baseline: startup must not count as a
+    // visit. Later snapshots each get a chance, so a rapid A→B→A sequence still
+    // records both switches even when React batches the renders.
+    function createVisitTracker(onVisit) {
+      let previousId = ''
+      return {
+        update(list) {
+          const id = mainViewIdOf(list)
+          if (!id) return
+          if (previousId && id !== previousId) onVisit(id)
+          previousId = id
+        },
+      }
     }
 
     function isMac() {
@@ -3937,11 +3993,24 @@ window.__ModuleLoader__.load({
       [SESSION_STATE.PENDING]: { board: 'boardPending', region: 'regionPending' },
       [SESSION_STATE.RUNNING]: { board: 'boardRunning', region: 'regionRunning' },
       [SESSION_STATE.FINISHED]: { board: 'boardFinished', region: 'regionFinished' },
+      [SESSION_STATE.IDLE]: { board: 'boardIdle', region: 'boardIdle' },
     }
     const BOARD_ROW_CAP = 50
+    const RECENT_PAGE = 50
+    const RECENT_POLL_MS = 15_000
+    // One narrow adapter owns the whole cross-task contract: path, body shapes
+    // and the only cache of host activity. Adjust this block, not its callers.
+    const SESSION_ACTIVITY = {
+      path: '/dsh-file-finder/session-activity',
+      // The route refuses a read of more than 200 ids, so one catalog becomes
+      // several requests; the batch size lives here with the body shapes.
+      readBody: (ids) => ({ action: 'read', ids }),
+      visitBody: (id) => ({ action: 'visit', id }),
+    }
+    const ACTIVITY_READ_BATCH = 200
 
     const boardStore = {
-      state: { open: false },
+      state: { open: false, tab: 'status' },
       listeners: new Set(),
       snapshot() { return boardStore.state },
       subscribe(listener) {
@@ -3949,14 +4018,22 @@ window.__ModuleLoader__.load({
         return () => boardStore.listeners.delete(listener)
       },
       emit() { boardStore.listeners.forEach((listener) => listener()) },
-      open() {
-        if (boardStore.state.open) return
-        boardStore.state = { open: true }
+      open(tab) {
+        const next = tab === 'recent' ? 'recent' : 'status'
+        if (boardStore.state.open && boardStore.state.tab === next) return
+        boardStore.state = { open: true, tab: next }
+        boardStore.emit()
+      },
+      setTab(tab) {
+        if (!boardStore.state.open) return
+        const next = tab === 'recent' ? 'recent' : 'status'
+        if (boardStore.state.tab === next) return
+        boardStore.state = { ...boardStore.state, tab: next }
         boardStore.emit()
       },
       close() {
         if (!boardStore.state.open) return
-        boardStore.state = { open: false }
+        boardStore.state = { ...boardStore.state, open: false }
         boardStore.emit()
       },
       toggle() {
@@ -4075,6 +4152,156 @@ window.__ModuleLoader__.load({
       return counts
     }
 
+    function normalizeActivityRecord(record) {
+      const activityAt = Number(record && record.activityAt)
+      const visitedAt = Number(record && record.visitedAt)
+      return {
+        activityAt: Number.isFinite(activityAt) && activityAt > 0 ? activityAt : 0,
+        visitedAt: Number.isFinite(visitedAt) && visitedAt > 0 ? visitedAt : 0,
+      }
+    }
+
+    function normalizeActivityRecords(raw) {
+      const records = {}
+      if (!raw || typeof raw !== 'object') return records
+      for (const [id, value] of Object.entries(raw)) {
+        if (typeof id !== 'string' || !id) continue
+        records[id] = normalizeActivityRecord(value)
+      }
+      return records
+    }
+
+    // The host activity cache. It is a cache of host facts, not a second
+    // session store: `records` is exactly what the narrow read route returned,
+    // plus visits this page just made. A read or visit failure stays visible,
+    // so a fallback summary time is never presented as a persisted fact.
+    const activityStore = {
+      state: { records: {}, readError: false, visitError: false, reading: false },
+      listeners: new Set(),
+      readSeq: 0,
+      visitSeq: {},
+      snapshot() { return activityStore.state },
+      subscribe(listener) {
+        activityStore.listeners.add(listener)
+        return () => activityStore.listeners.delete(listener)
+      },
+      emit() { activityStore.listeners.forEach((listener) => listener()) },
+      patch(next) {
+        activityStore.state = { ...activityStore.state, ...next }
+        activityStore.emit()
+      },
+      async read(ids) {
+        const wanted = (Array.isArray(ids) ? ids : []).filter((id) => typeof id === 'string' && id)
+        const seq = ++activityStore.readSeq
+        if (!wanted.length) {
+          activityStore.patch({ records: {}, readError: false, reading: false })
+          return
+        }
+        activityStore.patch({ reading: true })
+        const batches = []
+        for (let start = 0; start < wanted.length; start += ACTIVITY_READ_BATCH) {
+          batches.push(wanted.slice(start, start + ACTIVITY_READ_BATCH))
+        }
+        try {
+          const pages = await Promise.all(batches.map((batch) => post(
+            SESSION_ACTIVITY.path,
+            SESSION_ACTIVITY.readBody(batch),
+          )))
+          if (seq !== activityStore.readSeq) return
+          const merged = {}
+          for (const data of pages) {
+            if (!data || data.ok !== true || !data.records || typeof data.records !== 'object') {
+              throw new Error('session activity: invalid read response')
+            }
+            Object.assign(merged, normalizeActivityRecords(data.records))
+          }
+          activityStore.patch({ records: merged, readError: false, reading: false })
+        } catch {
+          if (seq !== activityStore.readSeq) return
+          activityStore.patch({ readError: true, reading: false })
+        }
+      },
+      visit(id) {
+        if (typeof id !== 'string' || !id) return Promise.resolve()
+        // Record locally at once: opening a session is the user's fact even if
+        // the host write fails. The failure flag below keeps that honest.
+        const seq = (activityStore.visitSeq[id] || 0) + 1
+        activityStore.visitSeq[id] = seq
+        const previous = normalizeActivityRecord(activityStore.state.records[id])
+        activityStore.patch({
+          records: {
+            ...activityStore.state.records,
+            [id]: { ...previous, visitedAt: Date.now() },
+          },
+        })
+        return post(SESSION_ACTIVITY.path, SESSION_ACTIVITY.visitBody(id))
+          .then((data) => {
+            if (seq !== activityStore.visitSeq[id]) return
+            const visitedAt = Number(data && data.visitedAt)
+            if (!data || data.ok !== true || !Number.isFinite(visitedAt) || visitedAt <= 0) {
+              throw new Error('session activity: invalid visit response')
+            }
+            const current = normalizeActivityRecord(activityStore.state.records[id])
+            activityStore.patch({
+              records: { ...activityStore.state.records, [id]: { ...current, visitedAt } },
+              visitError: false,
+            })
+          })
+          .catch(() => {
+            if (seq !== activityStore.visitSeq[id]) return
+            activityStore.patch({ visitError: true })
+          })
+      },
+    }
+
+    // The newest fact wins. Host activity beats a visit on a tie, and a visit
+    // beats the summary's `updatedAt`. A summary-only timestamp is explicitly
+    // approximate: DSH exposes no completion time, so it must never be labelled
+    // as the assistant finishing or succeeding.
+    function recentTimeOf(row, records) {
+      const record = records && typeof records === 'object' ? records[row.id] : undefined
+      const activityAt = Number(record && record.activityAt) || 0
+      const visitedAt = Number(record && record.visitedAt) || 0
+      const summaryAt = Number(row && row.updatedAt) || 0
+      if (activityAt && activityAt >= visitedAt && activityAt >= summaryAt) {
+        return { at: activityAt, source: 'activity', approximate: false }
+      }
+      if (visitedAt && visitedAt >= summaryAt) {
+        return { at: visitedAt, source: 'visit', approximate: false }
+      }
+      if (summaryAt) return { at: summaryAt, source: 'summary', approximate: true }
+      return { at: 0, source: '', approximate: false }
+    }
+
+    // Filter first, then sort and page: the search must reach the whole eligible
+    // set, not just the first 50 rows. Equal timestamps keep their incoming
+    // (DSH list) order, so a refresh never shuffles a tie.
+    function recentRowsOf(rows, records, query, limit) {
+      const needle = String(query || '').trim().toLowerCase()
+      const matched = []
+      for (let index = 0; index < rows.length; index += 1) {
+        const row = rows[index]
+        if (needle && !row.title.toLowerCase().includes(needle)
+          && !row.workspace.toLowerCase().includes(needle)) continue
+        const time = recentTimeOf(row, records)
+        matched.push({
+          ...row,
+          recentAt: time.at,
+          recentSource: time.source,
+          approximate: time.approximate,
+          recentIndex: index,
+        })
+      }
+      matched.sort((left, right) => right.recentAt - left.recentAt || left.recentIndex - right.recentIndex)
+      const size = Number(limit)
+      const cap = Number.isFinite(size) && size > 0 ? Math.floor(size) : RECENT_PAGE
+      return {
+        rows: matched.slice(0, cap),
+        total: matched.length,
+        hasMore: matched.length > cap,
+      }
+    }
+
     // Columns are filtered by the region's pill and by the search box, then
     // ordered for their own job: the longest wait first, the newest activity
     // first, the newest completion first.
@@ -4142,6 +4369,22 @@ window.__ModuleLoader__.load({
       )
     }
 
+    // Subscribing directly to the list store catches every switch, including
+    // two switches between renders. The first non-empty main view is only the
+    // baseline, so a restored session is not counted as a visit.
+    function useMainViewVisits(ctx, enabled) {
+      useEffect(() => {
+        if (!enabled) return undefined
+        const sessions = serviceOf(ctx, 'sessions')
+        const list = sessions && sessions.list
+        if (!list || typeof list.getSnapshot !== 'function') return undefined
+        const tracker = createVisitTracker((id) => { activityStore.visit(id) })
+        tracker.update(list.getSnapshot())
+        if (typeof list.subscribe !== 'function') return undefined
+        return list.subscribe(() => tracker.update(list.getSnapshot()))
+      }, [ctx, enabled])
+    }
+
     function SessionStatusRegion(props) {
       const t = props.t
       const settings = useSyncExternalStore(prefs.subscribe, prefs.snapshot, prefs.snapshot).sessionBoard
@@ -4172,7 +4415,18 @@ window.__ModuleLoader__.load({
       },
       h('span', { className: 'dff-region-dot', 'aria-hidden': 'true' }),
       h('span', { className: 'dff-region-label' }, t(SESSION_STATE_COPY[state].region)),
-      h('b', { className: 'dff-region-count' }, String(counts[state])))))
+      h('b', { className: 'dff-region-count' }, String(counts[state])))),
+      h('button', {
+        key: 'recent',
+        type: 'button',
+        className: 'dff-region-recent',
+        'data-dff-region-recent': 'true',
+        title: t('regionRecentAria'),
+        'aria-label': t('regionRecentAria'),
+        onClick: () => boardStore.open('recent'),
+      },
+      h('span', { className: 'dff-region-dot', 'aria-hidden': 'true' }),
+      h('span', { className: 'dff-region-label' }, t('regionRecent'))))
     }
 
     function SessionBoard(props) {
@@ -4183,12 +4437,17 @@ window.__ModuleLoader__.load({
       const request = useSyncExternalStore(boardStore.subscribe, boardStore.snapshot, boardStore.snapshot)
       const presence = usePresence(request.open, 140)
       const rows = useSessionRows(ctx)
+      const activity = useSyncExternalStore(activityStore.subscribe, activityStore.snapshot, activityStore.snapshot)
       const [query, setQuery] = useState('')
+      const [recentLimit, setRecentLimit] = useState(RECENT_PAGE)
       const inputRef = useRef(null)
+      const tab = request.tab === 'recent' ? 'recent' : 'status'
+      useMainViewVisits(ctx, settings.enabled)
 
       useEffect(() => {
         if (!request.open) {
           setQuery('')
+          setRecentLimit(RECENT_PAGE)
           return undefined
         }
         const timer = setTimeout(() => { if (inputRef.current) inputRef.current.focus() }, 30)
@@ -4201,6 +4460,23 @@ window.__ModuleLoader__.load({
         if (settings.enabled) return
         if (boardStore.state.open) boardStore.close()
       }, [settings.enabled])
+
+      // The recent tab keeps itself fresh from the existing session observables
+      // (list/status changes arrive as key events) plus a slow poll for the
+      // host's activity/visited times. It never polls per streamed token.
+      const idsKey = rows.map((row) => row.id).join('\u0000')
+      useEffect(() => {
+        if (!request.open || tab !== 'recent' || !settings.enabled) return undefined
+        const ids = idsKey ? idsKey.split('\u0000') : []
+        let disposed = false
+        const read = () => { if (!disposed) activityStore.read(ids) }
+        read()
+        const timer = setInterval(read, RECENT_POLL_MS)
+        return () => {
+          disposed = true
+          clearInterval(timer)
+        }
+      }, [request.open, tab, settings.enabled, idsKey])
 
       useEffect(() => {
         if (!request.open || !settings.enabled) return undefined
@@ -4219,9 +4495,14 @@ window.__ModuleLoader__.load({
       if (!settings.enabled || !presence.mounted) return null
 
       const columns = boardColumnsOf(rows, query)
+      const recent = recentRowsOf(rows, activity.records, query, recentLimit)
       const stateLabel = (state) => t(SESSION_STATE_COPY[state].board)
 
       function openSessionRow(id) {
+        // A click from this plugin is a visit even when the main view is
+        // already showing that session (so the main-view tracker sees no
+        // switch). The adapter records it and reports a failed host write.
+        activityStore.visit(id)
         boardStore.close()
         const workspace = serviceOf(ctx, 'uiWorkspace')
         if (!workspace || typeof workspace.openSession !== 'function') return
@@ -4229,6 +4510,133 @@ window.__ModuleLoader__.load({
           workspace.openSession(id)
         } catch { /* navigation belongs to the shell */ }
       }
+
+      function onTabKey(event) {
+        let next = ''
+        if (event.key === 'ArrowRight') next = tab === 'status' ? 'recent' : 'status'
+        else if (event.key === 'ArrowLeft') next = tab === 'recent' ? 'status' : 'recent'
+        else if (event.key === 'Home') next = 'status'
+        else if (event.key === 'End') next = 'recent'
+        if (!next) return
+        event.preventDefault()
+        boardStore.setTab(next)
+        const target = event.currentTarget.querySelector(`[data-dff-board-tab="${next}"]`)
+        if (target && typeof target.focus === 'function') target.focus()
+      }
+
+      function sourceLabel(row) {
+        if (row.recentSource === 'activity') return t('boardRecentSourceActivity')
+        if (row.recentSource === 'visit') return t('boardRecentSourceVisit')
+        if (row.recentSource === 'summary') return t('boardRecentSourceSummary')
+        return ''
+      }
+
+      function recentAge(row) {
+        if (!row.recentAt) return t('boardRecentUnknown')
+        const age = ageText(row.recentAt, t)
+        return row.approximate ? textOf(t, 'recentApprox', { age }) : age
+      }
+
+      const tabButton = (value, labelKey) => h('button', {
+        key: value,
+        type: 'button',
+        role: 'tab',
+        id: `dff-board-tab-${value}`,
+        className: 'dff-board-tab',
+        'data-dff-board-tab': value,
+        'aria-selected': tab === value ? 'true' : 'false',
+        'aria-controls': `dff-board-panel-${value}`,
+        tabIndex: tab === value ? 0 : -1,
+        onClick: () => boardStore.setTab(value),
+      }, t(labelKey))
+
+      const statusPanel = h('div', {
+        key: 'status',
+        id: 'dff-board-panel-status',
+        role: 'tabpanel',
+        'aria-labelledby': 'dff-board-tab-status',
+        className: 'dff-board-cols',
+        'data-dff-board-panel': 'status',
+        'data-columns': String(columns.length),
+      },
+      columns.map((column) => h('section', {
+        key: column.state,
+        className: 'dff-board-col',
+        'data-state': column.state,
+        'data-dff-board-col': column.state,
+      },
+      h('header', { className: 'dff-board-colhead' },
+        h('span', { className: 'dff-board-dot', 'aria-hidden': 'true' }),
+        h('strong', null, stateLabel(column.state)),
+        h('span', { className: 'dff-board-n', 'data-count': String(column.total) }, String(column.total))),
+      column.rows.length
+        ? h('div', { className: 'dff-board-list' }, column.rows.map((row) => h('button', {
+          key: row.id,
+          type: 'button',
+          className: 'dff-board-row',
+          'data-dff-board-row': row.id,
+          'data-state': row.state,
+          'aria-label': textOf(t, 'boardOpenSession', { title: row.title }),
+          onClick: () => openSessionRow(row.id),
+        },
+        h('span', { className: 'dff-board-rowtitle' }, row.title),
+        h('span', { className: 'dff-board-meta' },
+          row.workspace ? h('span', { className: 'dff-board-ws' }, row.workspace) : null,
+          row.state === SESSION_STATE.PENDING ? h('span', null, t(pendingKeyOf(row.pending))) : null,
+          row.subagents
+            ? h('span', { className: 'dff-board-sub' }, textOf(t, 'subagentCount', { count: row.subagents }))
+            : null,
+          h('span', { className: 'dff-board-age' }, ageText(row.updatedAt, t))))))
+        : h('p', { className: 'dff-board-empty' }, query ? t('boardNoMatch') : t('boardEmpty')),
+      column.total > column.rows.length
+        ? h('p', { className: 'dff-board-more' }, textOf(t, 'boardMore', { count: column.total }))
+        : null)))
+
+      const recentPanel = h('div', {
+        key: 'recent',
+        id: 'dff-board-panel-recent',
+        role: 'tabpanel',
+        'aria-labelledby': 'dff-board-tab-recent',
+        className: 'dff-recent',
+        'data-dff-board-panel': 'recent',
+        'data-dff-recent-total': String(recent.total),
+      },
+      activity.readError
+        ? h('p', { className: 'dff-recent-notice', role: 'status', 'data-dff-recent-notice': 'read' },
+          t('boardRecentReadFailed'))
+        : null,
+      activity.visitError
+        ? h('p', { className: 'dff-recent-notice', role: 'status', 'data-dff-recent-notice': 'visit' },
+          t('boardRecentVisitFailed'))
+        : null,
+      recent.rows.length
+        ? h('div', { className: 'dff-recent-list' }, recent.rows.map((row) => h('button', {
+          key: row.id,
+          type: 'button',
+          className: 'dff-board-row dff-recent-row',
+          'data-dff-recent-entry': row.id,
+          'data-state': row.state,
+          'data-source': row.recentSource,
+          'data-approximate': row.approximate ? 'true' : undefined,
+          'aria-label': textOf(t, 'boardOpenSession', { title: row.title }),
+          onClick: () => openSessionRow(row.id),
+        },
+        h('span', { className: 'dff-board-rowtitle' }, row.title),
+        h('span', { className: 'dff-recent-meta' },
+          h('span', { className: 'dff-recent-state', 'data-state': row.state }, stateLabel(row.state)),
+          row.workspace ? h('span', { className: 'dff-board-ws' }, row.workspace) : null,
+          h('span', { className: 'dff-recent-when' },
+            h('span', { className: 'dff-recent-source' }, sourceLabel(row)),
+            h('span', { className: 'dff-recent-age' }, recentAge(row)))))))
+        : h('p', { className: 'dff-board-empty' }, query ? t('boardNoMatch') : t('boardRecentEmpty')),
+      recent.hasMore
+        ? h('button', {
+          type: 'button',
+          className: 'dff-recent-more',
+          'data-dff-recent-more': 'true',
+          onClick: () => setRecentLimit((value) => value + RECENT_PAGE),
+        }, textOf(t, 'boardRecentMore', { count: recent.total - recent.rows.length }))
+        : null)
 
       return h(React.Fragment, null,
         h('style', { key: 'css' }, css),
@@ -4242,6 +4650,7 @@ window.__ModuleLoader__.load({
           className: 'dff-board',
           'data-dff-board': 'true',
           'data-state': presence.closing ? 'closing' : 'open',
+          'data-tab': tab,
           role: 'dialog',
           'aria-modal': 'true',
           'aria-label': t('boardTitle'),
@@ -4258,7 +4667,10 @@ window.__ModuleLoader__.load({
                 placeholder: t('boardSearch'),
                 'aria-label': t('boardSearch'),
                 spellCheck: false,
-                onChange: (event) => setQuery(event.target.value),
+                onChange: (event) => {
+                  setQuery(event.target.value)
+                  setRecentLimit(RECENT_PAGE)
+                },
               })),
             h('span', { className: 'dff-board-kbd', 'data-dff-board-hint': 'true' },
               h(Keycaps, { keys: mac ? ['⇧', '⌘', 'G'] : ['Ctrl', 'Shift', 'G'] })),
@@ -4266,39 +4678,13 @@ window.__ModuleLoader__.load({
               type: 'button', className: 'dff-icon-btn', 'aria-label': t('close'),
               onClick: () => boardStore.close(),
             }, h(CloseIcon, { size: 16 })))),
-        h('div', { className: 'dff-board-cols', 'data-columns': String(columns.length) },
-          columns.map((column) => h('section', {
-            key: column.state,
-            className: 'dff-board-col',
-            'data-state': column.state,
-            'data-dff-board-col': column.state,
-          },
-          h('header', { className: 'dff-board-colhead' },
-            h('span', { className: 'dff-board-dot', 'aria-hidden': 'true' }),
-            h('strong', null, stateLabel(column.state)),
-            h('span', { className: 'dff-board-n', 'data-count': String(column.total) }, String(column.total))),
-          column.rows.length
-            ? h('div', { className: 'dff-board-list' }, column.rows.map((row) => h('button', {
-              key: row.id,
-              type: 'button',
-              className: 'dff-board-row',
-              'data-dff-board-row': row.id,
-              'data-state': row.state,
-              'aria-label': textOf(t, 'boardOpenSession', { title: row.title }),
-              onClick: () => openSessionRow(row.id),
-            },
-            h('span', { className: 'dff-board-rowtitle' }, row.title),
-            h('span', { className: 'dff-board-meta' },
-              row.workspace ? h('span', { className: 'dff-board-ws' }, row.workspace) : null,
-              row.state === SESSION_STATE.PENDING ? h('span', null, t(pendingKeyOf(row.pending))) : null,
-              row.subagents
-                ? h('span', { className: 'dff-board-sub' }, textOf(t, 'subagentCount', { count: row.subagents }))
-                : null,
-              h('span', { className: 'dff-board-age' }, ageText(row.updatedAt, t))))))
-            : h('p', { className: 'dff-board-empty' }, query ? t('boardNoMatch') : t('boardEmpty')),
-          column.total > column.rows.length
-            ? h('p', { className: 'dff-board-more' }, textOf(t, 'boardMore', { count: column.total }))
-            : null)))))
+        h('div', {
+          className: 'dff-board-tabs',
+          role: 'tablist',
+          'aria-label': t('boardTitle'),
+          onKeyDown: onTabKey,
+        }, tabButton('status', 'boardTabStatus'), tabButton('recent', 'boardTabRecent')),
+        tab === 'status' ? statusPanel : recentPanel))
     }
 
     function SettingsPage(props) {
@@ -5461,10 +5847,10 @@ window.__ModuleLoader__.load({
       }
 
       /* ── Session status region (sidebar foot) ───────────────────────────── */
-      .dff-region { display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; min-width: 0; padding: 7px 2px 2px; }
+      .dff-region { display: flex; flex-wrap: nowrap; align-items: center; gap: 2px; min-width: 0; padding: 7px 0 2px; }
       .dff-region-pill {
-        display: inline-flex; align-items: center; gap: 4px;
-        flex: none; height: 24px; padding: 0 7px; border: 1px solid transparent; border-radius: 999px;
+        display: inline-flex; align-items: center; gap: 3px;
+        flex: none; height: 24px; padding: 0 5px; border: 1px solid transparent; border-radius: 999px;
         background: transparent; color: var(--dsw-alias-label-secondary);
         font: inherit; font-size: 11px; font-weight: 500; line-height: 1; white-space: nowrap;
         cursor: pointer; transition: background var(--ds-transition-duration-fast) ease;
@@ -5488,6 +5874,16 @@ window.__ModuleLoader__.load({
       }
       .dff-region-pill:hover:not(:disabled) { filter: brightness(0.97); }
       .dff-region-pill:focus-visible { outline: 2px solid color-mix(in srgb, var(--dsw-alias-state-business-primary) 60%, transparent); outline-offset: 1px; }
+      .dff-region-recent {
+        display: inline-flex; align-items: center; gap: 3px;
+        flex: none; height: 24px; padding: 0 5px; border: 1px solid transparent; border-radius: 999px;
+        background: transparent; color: var(--dsw-alias-link);
+        font: inherit; font-size: 11px; font-weight: 500; line-height: 1; white-space: nowrap;
+        cursor: pointer; margin-left: auto;
+        transition: background var(--ds-transition-duration-fast) ease;
+      }
+      .dff-region-recent:hover { background: color-mix(in srgb, var(--dsw-alias-link) 9%, transparent); }
+      .dff-region-recent:focus-visible { outline: 2px solid color-mix(in srgb, var(--dsw-alias-state-business-primary) 60%, transparent); outline-offset: 1px; }
       .dff-region-pill:disabled {
         cursor: default;
         background: transparent;
@@ -5499,6 +5895,10 @@ window.__ModuleLoader__.load({
       .dff-region[data-wide="false"] .dff-region-pill {
         height: 16px; padding: 0; gap: 3px; border: 0; background: transparent;
         justify-content: center; align-items: center;
+      }
+      .dff-region[data-wide="false"] .dff-region-recent {
+        height: 16px; padding: 0; gap: 3px; border: 0; background: transparent;
+        justify-content: center; align-items: center; margin-left: 0;
       }
       .dff-region[data-wide="false"] .dff-region-label { display: none; }
       .dff-region[data-wide="false"] .dff-region-count { font-size: 10px; }
@@ -5563,6 +5963,66 @@ window.__ModuleLoader__.load({
       .dff-board-search input::placeholder { color: var(--dsw-alias-label-tertiary); }
       .dff-board-search:focus-within { border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 55%, transparent); }
       .dff-board-kbd { color: var(--dsw-alias-label-tertiary); }
+      .dff-board-tabs {
+        display: flex; gap: 2px; flex: none; padding: 0 16px;
+        border-bottom: 1px solid var(--dsw-alias-border-l1);
+      }
+      .dff-board-tab {
+        position: relative; height: 36px; padding: 0 12px; border: 0;
+        background: transparent; color: var(--dsw-alias-label-tertiary);
+        font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+      }
+      .dff-board-tab:hover { color: var(--dsw-alias-label-primary); }
+      .dff-board-tab[aria-selected="true"] { color: var(--dsw-alias-label-primary); }
+      .dff-board-tab[aria-selected="true"]::after {
+        content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px;
+        height: 2px; border-radius: 2px; background: var(--dsw-alias-state-business-primary);
+      }
+      .dff-board-tab:focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--dsw-alias-state-business-primary) 60%, transparent);
+        outline-offset: -4px; border-radius: 6px;
+      }
+      .dff-recent {
+        display: flex; flex-direction: column; gap: 8px; min-height: 0;
+        padding: 12px 16px 16px; overflow: auto;
+      }
+      .dff-recent-list { display: flex; flex-direction: column; gap: 7px; }
+      .dff-recent-meta {
+        display: flex; align-items: center; gap: 6px; min-width: 0;
+        color: var(--dsw-alias-label-tertiary); font-size: 10.5px;
+      }
+      .dff-recent-state { flex: none; padding: 1px 6px; border-radius: 999px; background: var(--dsw-alias-bg-module-platform); }
+      .dff-recent-state[data-state="pending"] {
+        color: var(--dsw-alias-state-warn-label);
+        background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 13%, transparent);
+      }
+      .dff-recent-state[data-state="running"] {
+        color: var(--dsw-alias-state-business-primary);
+        background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 11%, transparent);
+      }
+      .dff-recent-state[data-state="finished"] {
+        color: var(--dsw-alias-state-success-primary);
+        background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 11%, transparent);
+      }
+      .dff-recent-when { display: flex; gap: 4px; flex: none; margin-left: auto; }
+      .dff-recent-source { color: var(--dsw-alias-label-tertiary); }
+      .dff-recent-age { color: var(--dsw-alias-label-secondary); }
+      .dff-recent-notice {
+        margin: 0; padding: 8px 10px; border-radius: 8px; line-height: 17px;
+        border: 1px solid color-mix(in srgb, var(--dsw-alias-state-warn-primary) 32%, transparent);
+        background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 9%, transparent);
+        color: var(--dsw-alias-state-warn-label); font-size: 11.5px;
+      }
+      .dff-recent-more {
+        align-self: center; height: 30px; padding: 0 14px; border-radius: 8px;
+        border: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1);
+        color: var(--dsw-alias-link); font: inherit; font-size: 12px; cursor: pointer;
+      }
+      .dff-recent-more:hover { background: var(--dsw-alias-interactive-bg-hover); }
+      .dff-recent-more:focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--dsw-alias-state-business-primary) 60%, transparent);
+        outline-offset: 1px;
+      }
       .dff-board-chiprow { display: flex; align-items: center; gap: 8px; flex: none; padding: 9px 20px 0; }
       .dff-board-chip {
         display: inline-flex; align-items: center; height: 22px; padding: 0 9px;
@@ -5672,6 +6132,11 @@ window.__ModuleLoader__.load({
         indexSubagentRollup,
         pendingKeyOf,
         ageText,
+        recentTimeOf,
+        recentRowsOf,
+        mainViewIdOf,
+        createVisitTracker,
+        sessionActivity: activityStore,
       },
       apply(ctx) {
         try {

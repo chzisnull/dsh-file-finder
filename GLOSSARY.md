@@ -43,25 +43,32 @@ text file. Media always opens in the Viewer regardless of it.
 _Avoid_: 打开方式 as a per-file setting, default view
 
 **Session board**:
-The plugin's overlay that lists the user's sessions in three columns — the ones
-awaiting the user, the ones running, and the ones that finished unread — and
-opens any of them. It is a view of DSH's session status, not a second store.
-_Avoid_: 会话看板 as a task tracker, dashboard, kanban as a separate product
+The plugin's overlay for the user's sessions, opened as one dialog with two
+peer tabs. The Status board keeps three columns — awaiting the user, running,
+and finished unread — and opens any of them. Recent sessions lists every session
+the user can act on, idle ones included, newest first. It is a view of DSH's
+session status plus the plugin's own recency facts, not a second store.
+_Avoid_: 会话看板 as a task tracker, dashboard, kanban as a separate product,
+"all finished sessions"
 
 **Status region**:
-The three counts at the sidebar foot (awaiting / running / finished) that open
-the Session board, filtered to the count that was clicked. Collapses to a
-stacked dot rail when the sidebar is in its 56px form.
-_Avoid_: badge bar, status widget, notification tray
+The three counts at the sidebar foot (awaiting / running / finished unread) and
+the Recent entry beside them. A count opens the Status board; the Recent entry
+opens Recent sessions and stays usable when all three counts are zero. Collapses
+to a stacked dot rail when the sidebar is in its 56px form.
+_Avoid_: badge bar, status widget, notification tray, a fourth count
 
 **Session state**:
-The one state a session contributes to the counts, taken from DSH's own facts in
-this order: awaiting the user (pending approval, question or plan review),
-running, finished-unread, idle. Exactly one state per session, so the three
-counts add up to the number of sessions with something to show. A session's
-state includes its subagent descendants: a running subagent keeps the parent
-running and a waiting subagent makes the parent awaiting, while the parent still
-counts once.
+The one state a session contributes, taken from DSH's own facts in this order:
+awaiting the user (pending approval, question or plan review), running,
+finished unread, idle. Exactly one state per session. The counts only cover the
+sessions with something to show, so the three numbers add up to them; idle is
+not one of the counts and appears only in Recent sessions. Finished unread means
+a background run that ended and has not been looked at yet — opening the session
+or reloading the page clears it — not that the task succeeded, and not a
+historical completion list. A session's state includes its subagent descendants:
+a running subagent keeps the parent running and a waiting subagent makes the
+parent awaiting, while the parent still counts once.
 
 **Subagent rollup**:
 The rule that attaches subagent activity to the session it belongs to instead of
@@ -69,6 +76,38 @@ counting subagents separately, walking the `parentId` chain the way DSH's own
 session list does.
 _Avoid_: status (reserved for DSH's `SessionStatus` fields), 已完成 as "all
 idle sessions"
+
+**Recent sessions**:
+The second peer tab of the Session board: one record per session across every
+workspace of the current DSH instance, ranked by the newest of Activity time,
+Access time and DSH's session summary time. Blank placeholders, archived
+sessions and subagent sessions never get a record; idle sessions always do. The
+summary time is only an approximation of when the session was last active,
+because DSH exposes no completion time, so the row marks it as such. The first
+50 records are shown with a show-more action, and search covers the title and
+workspace of every eligible session, not only the visible page.
+_Avoid_: history, completed tasks, 历史任务, a fourth column
+
+**Recent entry**:
+The "Recent" (最近) control at the sidebar foot that opens the Session board on
+Recent sessions. It remains enabled when all three counts are zero. ⇧⌘G and the
+count controls still open the Status board.
+_Avoid_: recent badge, a count of idle sessions, a new shortcut
+
+**Activity time**:
+The time the plugin's host records for a session's key activity — a user or
+assistant message, a run starting or ending, and similar milestones, but not
+each streamed token. It is the plugin's own persisted fact, not a DSH-native
+session status and not DSH's `updatedAt`, and it survives a restart.
+_Avoid_: stream time, updatedAt, DSH status timestamp
+
+**Access time**:
+The time the plugin records when the user opens a session from the board or
+switches the main view to another one. The first view restored at startup is not
+a visit, and anything done while the page is not loaded cannot be observed, so
+it is an approximation. It is the plugin's own persisted fact, not a read
+receipt from DSH and not DSH's `updatedAt`.
+_Avoid_: last opened, read state, updatedAt
 
 **Desktop opener**:
 The action that hands one file to the operating system's default application

@@ -18,16 +18,19 @@ There are two DSH installations on this machine and they are **different version
 
 | Install | Version | Evidence |
 |---|---|---|
-| Desktop app runtime (`/Applications/DeepSeek Harness.app`) | **0.2.1-rc.2** | `app.asar:/dsh/desktop-runtime.json` → `release.version`; all `@deepseek-ai/dsh-*` packages in the archive are `0.2.1-rc.2` |
+| Desktop app runtime (`/Applications/DeepSeek Harness.app`) | **0.2.1-rc.5** | `app.asar:/dsh/desktop-runtime.json` → `release.version`; the `@deepseek-ai/dsh-*` packages in the archive were `0.2.1-rc.5` when the session-activity work (§11) was verified (rc.2 was the version this document was first written against) |
 | nvm global CLI (`$NVM_NODE/lib/node_modules/@deepseek-ai/dsh`) | **0.1.6-alpha.2** | `node -e "console.log(require('…/dsh/package.json').version)"` |
 
-The running GUI is the desktop app (`http://127.0.0.1:59279`), so **0.2.1-rc.2
-behavior is authoritative**. Verified on this machine:
+The running GUI is the desktop app, so **the packaged version's behavior is
+authoritative**. The loopback port changes on every start (the desktop host
+binds `--port 0`), so do not pin it: resolve it from the environment, for
+example `http://127.0.0.1:61467` in one session and another port after a
+restart. Verified on this machine:
 
 ```bash
-$ lsof -nP -iTCP:59279 -sTCP:LISTEN
-DeepSeek  97156  <user>  24u  IPv4  …  TCP 127.0.0.1:59279 (LISTEN)
-$ ps -o command= -p 97156
+$ lsof -nP -iTCP:<the port from the GUI URL> -sTCP:LISTEN
+DeepSeek  <pid>  <user>  24u  IPv4  …  TCP 127.0.0.1:<port> (LISTEN)
+$ ps -o command= -p <pid>
 /Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness --expose-internals \
   /Applications/DeepSeek Harness.app/Contents/Resources/app.asar/dsh/node_modules/@deepseek-ai/dsh-desktop-host/lib/index.js \
   /Applications/DeepSeek Harness.app/Contents/Resources/app.asar/dsh \
@@ -35,10 +38,10 @@ $ ps -o command= -p 97156
 ```
 
 That process line names both the asar runtime root and the desktop profile, so the
-packaged 0.2.1-rc.2 code and the linked local plugin are what the GUI is using.
+packaged runtime code and the linked local plugin are what the GUI is using.
 The 0.1.6 tree is still useful because it ships the `.d.ts` contracts that the
 packaged runtime strips; every contract cited from it was re-verified against the
-0.2.1 bundle. Where behavior differs, the 0.2.1 citation is given first.
+packaged bundle. Where behavior differs, the packaged citation is given first.
 
 Citation shorthand used below. `NVM_NODE` resolves the active Node's nvm prefix; set
 `NVM_NODE` or `DSH_CLI_ROOT` when your install lives elsewhere.
@@ -916,7 +919,10 @@ the opener's.
 ## 10. Session status, navigation and the sidebar foot (session board)
 
 The session board (0.13.0) is a pure client view over facts DSH already keeps.
-It reads four surfaces, all of them declared in package types:
+Since 0.14.0 it is one dialog with two peer tabs: the **Status board** below,
+and **Recent sessions**, which adds the plugin's own durable activity and
+access times on the host (§11). The status half still reads only DSH facts:
+it reads four surfaces, all of them declared in package types:
 
 | Read | Shape | Used for |
 | --- | --- | --- |
@@ -930,7 +936,7 @@ is `{ wide }`, so the counts know about the 56px rail) and `shell.overlay` (a
 `list`, click-through layer — the board opts back into pointer events).
 
 **State priority.** One state per session, in this order: awaiting the user →
-running → finished → idle. That is DSH's own precedence in `ui-workspace`
+running → finished unread → idle. That is DSH's own precedence in `ui-workspace`
 (`sessionStatuses()`), so the counts cannot disagree with the dots in the
 session list.
 
@@ -946,14 +952,92 @@ them, and the row keeps the label (`2 subagents`, `a subagent needs you`).
 **`completionUnread` is client-only.** It is a per-page `Set` in
 `ui-session`: a session is added when a running Agent stops while the user is
 elsewhere, and removed when that session becomes the main view or the page
-reloads. "Finished" therefore means *finished and not yet looked at*, not
-"historically completed". A stable historical counter would need Host data and
-was rejected as a non-actionable number.
+reloads. The column is therefore labelled **finished unread** (已结束·未读): it
+means *a background run ended and has not been looked at*, not "historically
+completed" and not "succeeded". A stable historical counter would need Host data
+and was rejected as a non-actionable number; Recent sessions answers the
+"find it again" question instead (§11).
 
 **Degradation.** A shell without `uiSession` still answers `running` from
 `sessions.list` rows; a shell without `uiWorkspace` cannot navigate. Nothing in
 the board is required for the file surfaces to work, and the plugin registers
 nothing in DSH's file registries (ADR 0001/0002).
+
+## 11. Recent sessions: the plugin's own durable activity (0.14.0)
+
+**Why the plugin stores something.** DSH's session-summary timestamp
+(`SessionListMetadata.updatedAt`) is `max(header.createdAt, lastPromptAt)`, and
+`lastPromptAt` only advances for a `user/message` whose `source.kind` is `user`.
+Assistant messages, tool progress and a run ending never move it
+(`app.asar:/dsh/node_modules/@deepseek-ai/dsh-api-session-controller/lib/types/list.js:29-33,316`
+and `…/lib/index.js:2124-2125`). It is therefore a *prompt* time, not a
+completion time, and DSH keeps no record of when a session was last opened (the
+client's `retainedBy` counters are local reference counts and are never
+persisted). The board's second tab needs both facts, so the plugin persists
+them itself rather than relabelling DSH's timestamp.
+
+**The durable form.** One `ctx.storageDomain` domain in the `per-record` layout,
+table `records`, keyed by the *root* session id:
+
+```js
+{ activityAt: number, visitedAt: number }   // strictObject: any other key is a schema failure
+```
+
+`activity.js` uses a real zod `strictObject`, so a future edit that tries to add
+message text or a payload fails at open instead of silently persisting it.
+The spec object is passed to `ctx.storageDomain.open()` directly; it does **not**
+import `@deepseek-ai/dsh-storage-domain`, because that package is a host peer and
+importing it would pull the host's storage/cordis peers into the plugin install.
+The domain lands under `$DSH_HOME/storages/file_finder_session_activity/records/`
+(next to DSH's own `workspace` and `session_projcache` domains), so it survives
+a restart with the rest of the host data. The only plugin dependency is `zod`,
+the same version the shipped storage domain uses.
+
+**What counts as activity.** The host listener
+`ctx.on('session/event', (session, event) => …)` looks at `event.type` only —
+`user/message`, `assistant/message`, `turn/start`, `turn/end`. Token-only and
+step/tool-stream records are ignored: they would move the list while an Agent
+streams without a real turn boundary. Subagent sessions bubble up along
+`session.header.parentSession` to the root session, so a parent ranks by its
+tree's work; the walk has a depth limit and cycle guard. The recorded stamp is
+the host clock at receipt, not `event.time`, and every write is `Math.max`, so a
+queued or replayed event can never move a record backwards.
+
+**Access time.** The browser reports `{action:'visit', id}` when the main view
+switches to another session; the host stamps it with its own clock. The client
+never sends a timestamp, so a page cannot forge a future or past visit. Startup's
+first restored main view is a baseline, not a visit.
+
+**Route.** `POST /dsh-file-finder/session-activity`, registered next to the file
+routes, and deliberately **absent from the agent tool's action enum** (the
+`file_finder` tool stays file-only):
+
+| Body | Answer |
+|---|---|
+| `{ action: 'read', ids: [...] }` (≤200, deduplicated) | `{ ok: true, records: { [id]: { activityAt, visitedAt } } }` |
+| `{ action: 'visit', id }` | `{ ok: true, visitedAt }` |
+
+**Admission and authorization.** The route is fail-closed: when the host
+`connection` service is missing it answers 503 instead of falling through (the
+existing file routes pass when `connection` is absent, which is why this route
+does not share their helper). Rejections from `connection.requestRejection` are
+forwarded. Both actions are then checked against the host's authoritative
+session corpus (`ctx.sessionQuery.listSessions()`), so an id that is not a real,
+visible session is refused before anything is written — the route has no
+"list everything" mode and returns timestamps only, which is what keeps it from
+becoming a metadata export.
+
+**Failure modes are visible.** `{ ok: false, code }` with `storage-unavailable`,
+`storage-failed`, `auth-unavailable`, `not-found`, `too-many`, `invalid-id` or
+`too-large`; the panel shows a `data-dff-recent-notice` line and falls back to
+the approximate summary time rather than presenting the fallback as persisted.
+Writes are coalesced per root (one in-flight chain, never a growing queue) and
+flushed on unmount; a `visit` answers only after its write is durable.
+
+**What cannot be restored.** Read state, task success/failure, the exact
+completion moment, and anything that happened while the page was not loaded.
+The first page is 50 records with a show-more action; search covers title and
+workspace of every eligible session, not only the visible page.
 
 ## Appendix A — reproducing the asar citations
 

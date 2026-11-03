@@ -9,6 +9,14 @@
  * three awaiting flavours, an idle session kept running by two subagents, an
  * idle session kept awaiting by a subagent, an orphan subagent, a blank row and
  * an archived row.
+ *
+ * `create({ idleExtras: n })` appends n idle sessions spread over the four
+ * workspaces. They contribute nothing to the three counts (idle is not one of
+ * them), so every existing count expectation stays valid; the browser check
+ * uses them to exercise the Recent tab's 50-row page, "show more" and search
+ * beyond the first page. The oldest of them is `done-read`: a session that
+ * finished, was read, and is now idle — it has no count anywhere, so finding it
+ * again is exactly what Recent is for.
  */
 (function () {
   var WORKSPACES = [
@@ -64,14 +72,33 @@
   ]
 
   var ARCHIVED = ['old']
+  var DONE_READ_ID = 'done-read'
+  var DONE_READ_MINUTES = 900
 
   function create(options) {
     var lang = (options && options.lang) === 'zh' ? 'zh' : 'en'
     var now = (options && options.now) || Date.now()
+    var idleExtras = Math.max(0, Math.floor(Number(options && options.idleExtras) || 0))
+    var rows = ROWS.slice()
+    var extraIds = []
+    for (var extra = 0; extra < idleExtras; extra += 1) {
+      var last = extra === idleExtras - 1
+      var extraRow = {
+        // Spread across every workspace, newest first, so a paged Recent list
+        // still shows several workspaces and its last page is far from page one.
+        id: last ? DONE_READ_ID : `idle-${extra}`,
+        workspace: last ? 'ws_video' : ['ws_file_finder', 'ws_api', 'ws_video', 'ws_site'][extra % 4],
+        minutes: last ? DONE_READ_MINUTES : 40 + extra * 5,
+        zh: last ? '旧结算审计（已读）' : `历史会话 ${extra + 1}`,
+        en: last ? 'Old billing audit (read)' : `Past session ${extra + 1}`,
+      }
+      rows.push(extraRow)
+      extraIds.push(extraRow.id)
+    }
     var byId = {}
     var statuses = new Map()
-    for (var index = 0; index < ROWS.length; index += 1) {
-      var row = ROWS[index]
+    for (var index = 0; index < rows.length; index += 1) {
+      var row = rows[index]
       var workspace = WORKSPACES.filter(function (item) { return item.workspaceId === row.workspace })[0]
       byId[row.id] = {
         id: row.id,
@@ -90,11 +117,12 @@
         completionUnread: Boolean(row.unread),
       })
     }
+    var doneRead = byId[DONE_READ_ID]
     return {
       list: {
         current: 'r1',
         phase: 'ready',
-        ids: ROWS.map(function (row) { return row.id }),
+        ids: rows.map(function (row) { return row.id }),
         byId: byId,
       },
       statuses: statuses,
@@ -105,9 +133,25 @@
             workspaceId: workspace.workspaceId,
             path: workspace.path,
             title: workspace[lang] || workspace.en,
-            sessionIds: ROWS.filter(function (row) { return row.workspace === workspace.workspaceId })
+            sessionIds: rows.filter(function (row) { return row.workspace === workspace.workspaceId })
               .map(function (row) { return row.id }),
           }
+        }),
+      },
+      // Everything the Recent-tab checks need to know about the extra rows.
+      recent: {
+        idleExtras: idleExtras,
+        ids: extraIds,
+        doneReadId: doneRead ? DONE_READ_ID : '',
+        doneReadTitle: doneRead ? doneRead.displayTitle : '',
+        doneReadWorkspaceId: 'ws_video',
+        doneReadWorkspaceTitle: (WORKSPACES.filter(function (item) { return item.workspaceId === 'ws_video' })[0] || {})[lang]
+          || 'Promo video',
+        // The four newest extras span every workspace and are therefore
+        // guaranteed to be inside the first page, whatever recency order a
+        // correct list uses.
+        acrossWorkspaces: ['idle-0', 'idle-1', 'idle-2', 'idle-3'].filter(function (id) {
+          return Boolean(byId[id])
         }),
       },
       // The numbers the dataset must always produce; the checks assert them.

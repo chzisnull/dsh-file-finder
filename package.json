@@ -25,6 +25,7 @@
   },
   "files": [
     "index.js",
+    "activity.js",
     "client.js",
     "icon.svg",
     "cordis.patch.yml",
@@ -34,7 +35,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test test/search.test.mjs test/raw-route.test.mjs test/list-route.test.mjs test/open-route.test.mjs test/session-board.test.mjs test/boot-safety.test.mjs test/ui-contract.test.mjs",
+    "test": "node --test test/search.test.mjs test/raw-route.test.mjs test/list-route.test.mjs test/open-route.test.mjs test/session-board.test.mjs test/boot-safety.test.mjs test/ui-contract.test.mjs test/session-activity.test.mjs",
     "preview": "node preview/screenshot.mjs",
     "check:bot": "node preview/bot-check.mjs",
     "check:find": "node preview/find-check.mjs",
@@ -53,5 +54,8 @@
     "client": {
       "platform": "web"
     }
+  },
+  "dependencies": {
+    "zod": "4.4.3"
   }
 }

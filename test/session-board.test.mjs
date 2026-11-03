@@ -241,3 +241,172 @@ test('relative ages step through now, minutes, hours and days', () => {
   assert.equal(board.ageText(now - 50 * 60 * MINUTE, (key) => key), 'ageDay')
   assert.equal(board.ageText(0, (key) => key), '')
 })
+
+test('recent rows include idle sessions and sort by the strongest activity fact', () => {
+  const list = listOf([
+    summary('activity', { updatedAt: now - 90 * MINUTE }),
+    summary('summary', { updatedAt: now - 5 * MINUTE }),
+    summary('visit', { updatedAt: now - 80 * MINUTE }),
+    summary('older', { updatedAt: now - 50 * MINUTE }),
+    summary('blank', { blank: true, updatedAt: now - MINUTE }),
+    summary('child', { origin: 'subagent', parentId: 'activity', updatedAt: now - MINUTE }),
+    summary('archived', { updatedAt: now - MINUTE }),
+  ])
+  const statuses = statusMap({
+    activity: statusOf(),
+    summary: statusOf(),
+    visit: statusOf(),
+    older: statusOf(),
+  })
+  const rows = board.sessionRowsOf(list, statuses, ['archived'], new Map(), new Map())
+  const records = {
+    activity: { activityAt: now - 2 * MINUTE, visitedAt: 0 },
+    visit: { activityAt: 0, visitedAt: now - 3 * MINUTE },
+  }
+  const recent = board.recentRowsOf(rows, records, '')
+  assert.deepEqual(recent.rows.map((row) => row.id), ['activity', 'visit', 'summary', 'older'])
+  assert.deepEqual(recent.rows.map((row) => row.state), ['idle', 'idle', 'idle', 'idle'])
+  assert.deepEqual(recent.rows.map((row) => row.recentSource), ['activity', 'visit', 'summary', 'summary'])
+  assert.deepEqual(recent.rows.map((row) => row.approximate), [false, false, true, true])
+  assert.equal(recent.rows[0].recentAt, now - 2 * MINUTE)
+  assert.equal(recent.total, 4)
+  assert.equal(recent.hasMore, false)
+})
+
+test('recent ties keep their incoming order, and the newest fact always wins', () => {
+  const tie = [
+    { id: 'first', title: 'first', workspace: 'w', updatedAt: 100 },
+    { id: 'second', title: 'second', workspace: 'w', updatedAt: 100 },
+  ]
+  assert.deepEqual(board.recentRowsOf(tie, {}, '').rows.map((row) => row.id), ['first', 'second'])
+  const row = { id: 'x', title: 'x', workspace: 'w', updatedAt: 100 }
+  assert.equal(board.recentTimeOf(row, { x: { activityAt: 100, visitedAt: 100 } }).source, 'activity')
+  assert.equal(board.recentTimeOf(row, { x: { activityAt: 90, visitedAt: 100 } }).source, 'visit')
+  const summaryOnly = board.recentTimeOf(row, { x: { activityAt: 0, visitedAt: 0 } })
+  assert.deepEqual(summaryOnly, { at: 100, source: 'summary', approximate: true })
+  assert.deepEqual(board.recentTimeOf({ ...row, updatedAt: 0 }, {}), { at: 0, source: '', approximate: false })
+})
+
+test('recent search covers every eligible session before the page is cut', () => {
+  const rows = []
+  for (let index = 0; index < 60; index += 1) {
+    rows.push(summary(`s${index}`, {
+      displayTitle: `Session ${index}`,
+      updatedAt: now - index,
+    }))
+  }
+  const list = listOf(rows)
+  const statuses = statusMap(Object.fromEntries(rows.map((row) => [row.id, statusOf()])))
+  const eligible = board.sessionRowsOf(list, statuses, [], new Map(), new Map())
+  const all = board.recentRowsOf(eligible, {}, '')
+  assert.equal(all.total, 60)
+  assert.equal(all.rows.length, 50, 'the first page defaults to 50')
+  assert.equal(all.hasMore, true)
+
+  const deeper = board.recentRowsOf(eligible, {}, 'session 59', 50)
+  assert.deepEqual(deeper.rows.map((row) => row.id), ['s59'], 'the 60th row is searchable, not truncated away')
+  assert.equal(deeper.total, 1)
+
+  const workspace = board.recentRowsOf(eligible, {}, 'project', 50)
+  assert.equal(workspace.total, 60, 'the workspace name is part of the search')
+
+  const page = board.recentRowsOf(eligible, {}, '', 100)
+  assert.equal(page.rows.length, 60)
+  assert.equal(page.hasMore, false)
+})
+
+test('the activity adapter uses one route and reports read or visit failures', async () => {
+  const calls = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(init.body)
+    calls.push({ url, body })
+    const payload = body.action === 'read'
+      ? { ok: true, records: { a: { activityAt: 123, visitedAt: 0 }, bad: { activityAt: 'nope' } } }
+      : { ok: true, visitedAt: 456 }
+    return new Response(JSON.stringify(payload), { status: 200, headers: { 'content-type': 'application/json' } })
+  }
+  try {
+    const activity = board.sessionActivity
+    await activity.read(['a', 'b'])
+    assert.deepEqual(calls[0], { url: '/dsh-file-finder/session-activity', body: { action: 'read', ids: ['a', 'b'] } })
+    assert.equal(activity.snapshot().readError, false)
+    assert.equal(activity.snapshot().records.a.activityAt, 123)
+    assert.equal(activity.snapshot().records.bad.activityAt, 0, 'a malformed record never becomes a fake timestamp')
+
+    await activity.visit('a')
+    assert.deepEqual(calls[1], { url: '/dsh-file-finder/session-activity', body: { action: 'visit', id: 'a' } })
+    assert.equal(activity.snapshot().records.a.visitedAt, 456)
+    assert.equal(activity.snapshot().visitError, false)
+
+    globalThis.fetch = async () => { throw new Error('offline') }
+    await activity.read(['a'])
+    assert.equal(activity.snapshot().readError, true, 'a missing host route is a visible read degradation')
+    await activity.visit('a')
+    assert.equal(activity.snapshot().visitError, true, 'a rejected visit is never reported as persisted')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('the activity read batches past the host limit and merges every page', async () => {
+  const batches = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(init.body)
+    batches.push(body.ids)
+    const records = Object.fromEntries(body.ids.map((id) => [id, { activityAt: 100, visitedAt: 0 }]))
+    return new Response(JSON.stringify({ ok: true, records }), { status: 200, headers: { 'content-type': 'application/json' } })
+  }
+  try {
+    const ids = Array.from({ length: 450 }, (_, index) => `s${index}`)
+    await board.sessionActivity.read(ids)
+    assert.deepEqual(batches.map((batch) => batch.length), [200, 200, 50], 'one request per 200 ids')
+    assert.equal(board.sessionActivity.snapshot().readError, false)
+    assert.equal(Object.keys(board.sessionActivity.snapshot().records).length, 450, 'every batch lands')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('main-view switches record visits, but the first restored view is the baseline', () => {
+  const visits = []
+  const tracker = board.createVisitTracker((id) => visits.push(id))
+  const main = (id, generation = 1) => summary(id, { retainedBy: { mainView: generation } })
+
+  tracker.update(listOf([]))
+  tracker.update(listOf([main('a')]))
+  assert.deepEqual(visits, [], 'startup restore is not a visit')
+
+  tracker.update(listOf([main('a'), main('b')]))
+  assert.deepEqual(visits, [], 'two mainView rows pick the first in ids order')
+  tracker.update(listOf([main('a', 0), main('b')]))
+  assert.deepEqual(visits, ['b'])
+
+  tracker.update(listOf([]))
+  tracker.update(listOf([main('b', 0), main('c')]))
+  tracker.update(listOf([main('a'), main('b', 0), main('c')]))
+  assert.deepEqual(visits, ['b', 'c', 'a'], 'rapid switches each record; an empty snapshot settles nothing')
+
+  assert.equal(board.mainViewIdOf({ byId: { a: main('a') } }), 'a', 'rows missing from ids still resolve')
+  assert.equal(board.mainViewIdOf({ ids: ['b', 'a'], byId: { a: main('a'), b: main('b') } }), 'b')
+})
+
+test('one dialog carries the two peer tabs with stable selectors and honest copy', () => {
+  assert.match(source, /state: \{ open: false, tab: 'status' \}/)
+  assert.match(source, /'data-dff-board-tab': value/)
+  assert.match(source, /tabButton\('status', 'boardTabStatus'\)/)
+  assert.match(source, /tabButton\('recent', 'boardTabRecent'\)/)
+  assert.match(source, /'data-dff-recent-entry'/)
+  assert.match(source, /'data-dff-recent-more'/)
+  assert.match(source, /'data-dff-region-recent'/)
+  assert.match(source, /role: 'tablist'/)
+  assert.match(source, /role: 'tab'/)
+  assert.match(source, /role: 'tabpanel'/)
+  assert.match(source, /aria-selected/)
+  assert.match(source, /boardFinished: '已结束·未读'/)
+  assert.match(source, /regionFinished: '已结束·未读'/)
+  assert.match(source, /boardTabStatus:/)
+  assert.match(source, /boardTabRecent:/)
+  assert.match(source, /boardRecentSourceSummary:/)
+})

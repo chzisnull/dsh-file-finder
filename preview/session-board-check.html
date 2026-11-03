@@ -23,6 +23,63 @@
 <script src="./vendor/react-dom.development.js"></script>
 <script src="./loader-shim.js"></script>
 <script src="./fixtures/sessions.js"></script>
+<script>
+  // The one fake for the Host's session-activity route. It never reads a real
+  // session: every record starts from the fixture below, and both actions the
+  // client may use are answered in the shapes the Host promises.
+  (function () {
+    'use strict'
+    var fixture = window.dffSessionFixture.create({ lang: 'zh', idleExtras: 60 })
+    var records = {}
+    var calls = []
+    fixture.list.ids.forEach(function (id) {
+      var summary = fixture.list.byId[id]
+      records[id] = { activityAt: Number(summary.updatedAt) || 0, visitedAt: 0 }
+    })
+    function reply(payload) {
+      return Promise.resolve(new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }))
+    }
+    function bodyOf(init) {
+      if (!init || init.body === undefined || init.body === null) return {}
+      if (typeof init.body !== 'string') return {}
+      try { return JSON.parse(init.body) } catch (error) { return {} }
+    }
+    window.__DFF_FIXTURE__ = fixture
+    window.__DFF_ACTIVITY__ = { calls: calls, records: records }
+    window.fetch = function (input, init) {
+      var url = String(typeof input === 'string' ? input : (input && input.url) || '')
+      if (url.indexOf('/dsh-file-finder/session-activity') < 0) {
+        return Promise.reject(new Error('unexpected fetch in the board check: ' + url))
+      }
+      var body = bodyOf(init)
+      calls.push({
+        method: String((init && init.method) || 'GET').toUpperCase(),
+        action: body.action,
+        id: body.id,
+        ids: Array.isArray(body.ids) ? body.ids.slice() : [],
+      })
+      if (body.action === 'read') {
+        var out = {}
+        var ids = Array.isArray(body.ids) ? body.ids : []
+        for (var index = 0; index < ids.length; index += 1) {
+          var id = ids[index]
+          out[id] = records[id] || { activityAt: 0, visitedAt: 0 }
+        }
+        return reply({ ok: true, records: out })
+      }
+      if (body.action === 'visit') {
+        var visitedAt = Date.now()
+        var known = records[body.id] || { activityAt: visitedAt, visitedAt: 0 }
+        records[body.id] = { activityAt: known.activityAt || visitedAt, visitedAt: visitedAt }
+        return reply({ ok: true, visitedAt: visitedAt })
+      }
+      return reply({ ok: false })
+    }
+  })()
+</script>
 <script src="../client.js"></script>
 <script>
   (function () {
@@ -54,8 +111,10 @@
     function secondsAgo(seconds) { return Date.now() - seconds * 1000 }
 
     // Three states DSH models, plus the three rows that must never be counted.
-    // One dataset for every preview surface (preview/fixtures/sessions.js).
-    var fixture = window.dffSessionFixture.create({ lang: 'zh' })
+    // One dataset for every preview surface (preview/fixtures/sessions.js); the
+    // 60 idle extras exercise Recent without touching the count expectations.
+    var fixture = window.__DFF_FIXTURE__
+    var activity = window.__DFF_ACTIVITY__
     var sessions = observable(fixture.list)
     var statuses = observable(fixture.statuses)
     var workspaces = observable(fixture.workspaces)
@@ -99,6 +158,11 @@
       })
     }
 
+    // A failed wait is a failed check, not a reason to stop reporting the rest.
+    function settled(checkFn, timeout) {
+      return waitFor(checkFn, timeout).catch(function () { return null })
+    }
+
     function setInput(input, value) {
       var setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
       setter.call(input, value)
@@ -112,6 +176,35 @@
     function board() { return document.querySelector('[data-dff-board]') }
     function region() { return document.querySelector('[data-dff-region]') }
     function columns() { return Array.prototype.slice.call(document.querySelectorAll('[data-dff-board-col]')) }
+
+    // The sidebar's Recent action: named explicitly by the agreed selector, but
+    // the state attribute is accepted too so the check survives a rename that
+    // still means "the fourth, always-on control".
+    function recentControl() {
+      var node = region()
+      if (!node) return null
+      return node.querySelector('[data-dff-region-recent]') || node.querySelector('[data-state="recent"]')
+    }
+
+    function recentEntries() {
+      var node = board()
+      return node ? Array.prototype.slice.call(node.querySelectorAll('[data-dff-recent-entry]')) : []
+    }
+
+    function visible(node) {
+      if (!node) return false
+      if (!node.getClientRects().length) return false
+      var style = getComputedStyle(node)
+      return style.visibility !== 'hidden' && style.display !== 'none'
+    }
+
+    function shownRecent() {
+      return recentEntries().filter(visible)
+    }
+
+    function activityCalls(action) {
+      return activity.calls.filter(function (call) { return !action || call.action === action })
+    }
 
     ;(async function run() {
       var moduleExports = window.__DFF_MODULE__
@@ -236,6 +329,196 @@
       var label = rail.querySelector('.dff-region-label')
       check('the rail hides the labels and keeps the numbers', label && getComputedStyle(label).display === 'none',
         label ? getComputedStyle(label).display : 'no label')
+
+      // ── Two tabs: the status board and the recent list ────────────────────
+      regionRoot.render(React.createElement(Region, { wide: true }))
+      await waitFor(function () { return region() && region().getAttribute('data-wide') === 'true' })
+
+      pressBoardShortcut()
+      await waitFor(board)
+      var statusTab = board().querySelector('[data-dff-board-tab="status"]')
+      var recentTab = board().querySelector('[data-dff-board-tab="recent"]')
+      check('the board offers a status tab and a recent tab', Boolean(statusTab && recentTab))
+      check('the shortcut opens the board on the status tab',
+        Boolean(statusTab) && statusTab.getAttribute('aria-selected') === 'true'
+        && Boolean(recentTab) && recentTab.getAttribute('aria-selected') === 'false',
+        statusTab ? statusTab.getAttribute('aria-selected') : 'no status tab')
+      check('both tabs carry the tab role and sit in a tablist',
+        Boolean(statusTab && recentTab)
+        && statusTab.getAttribute('role') === 'tab'
+        && recentTab.getAttribute('role') === 'tab'
+        && Boolean(statusTab.closest('[role="tablist"]')))
+      if (statusTab) statusTab.focus()
+      check('a tab can take focus', Boolean(statusTab) && document.activeElement === statusTab)
+      check('the status tab shows its columns', visible(board().querySelector('[data-dff-board-col]')))
+
+      // Standard tab keyboard behaviour: arrows move the selection, so the
+      // board is usable without a pointer (the board's own open effect still
+      // decides where focus lands, which is why focus is checked separately).
+      if (statusTab) {
+        statusTab.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }))
+      }
+      await settled(function () {
+        return board() && board().querySelector('[data-dff-board-tab="recent"][aria-selected="true"]')
+      })
+      check('ArrowRight moves the tabs to recent',
+        Boolean(board() && board().querySelector('[data-dff-board-tab="recent"][aria-selected="true"]')))
+      var recentByKey = board() ? board().querySelector('[data-dff-board-tab="recent"]') : null
+      if (recentByKey) {
+        recentByKey.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }))
+      }
+      await settled(function () {
+        return board() && board().querySelector('[data-dff-board-tab="status"][aria-selected="true"]')
+      })
+      check('ArrowLeft moves the tabs back to status',
+        Boolean(board() && board().querySelector('[data-dff-board-tab="status"][aria-selected="true"]')))
+
+      recentTab = board().querySelector('[data-dff-board-tab="recent"]')
+      if (recentTab) recentTab.click()
+      await settled(function () {
+        return board() && board().querySelector('[data-dff-board-tab="recent"][aria-selected="true"]')
+      })
+      await settled(function () { return shownRecent().length > 0 })
+      check('clicking a tab switches the board to recent',
+        Boolean(board() && board().querySelector('[data-dff-board-tab="recent"][aria-selected="true"]')))
+      check('the recent tab renders recent entries', shownRecent().length > 0, shownRecent().length)
+      var firstRecent = shownRecent()[0]
+      if (firstRecent) firstRecent.focus()
+      check('a recent entry can take focus', Boolean(firstRecent) && document.activeElement === firstRecent)
+
+      var statusTabNow = board().querySelector('[data-dff-board-tab="status"]')
+      if (statusTabNow) statusTabNow.click()
+      await settled(function () {
+        return board() && board().querySelector('[data-dff-board-tab="status"][aria-selected="true"]')
+      })
+      check('switching back shows the status columns again', visible(board().querySelector('[data-dff-board-col]')))
+      var recentTabNow = board().querySelector('[data-dff-board-tab="recent"]')
+      if (recentTabNow) recentTabNow.click()
+      await settled(function () { return shownRecent().length > 0 })
+
+      // The Host seam: the recent view asks for activity records in the shape
+      // preview/fixtures/sessions.js seeded, never for real user data.
+      var readSeen = Boolean(await settled(function () {
+        return activityCalls('read').some(function (call) { return call.ids.length > 0 })
+      }, 1500))
+      check('the board asks the Host for session activity records', readSeen)
+
+      // ── The recent list: one page, cross-workspace, no leftovers ──────────
+      await settled(function () { return shownRecent().length === 50 ? true : null })
+      var pageOne = shownRecent()
+      check('the recent list starts with one page of 50', pageOne.length === 50, pageOne.length)
+      var more = board() ? board().querySelector('[data-dff-recent-more]') : null
+      check('a full recent page offers a way to see more', Boolean(more))
+      var pageIds = pageOne.map(function (entry) { return entry.getAttribute('data-dff-recent-entry') })
+      check('the recent list spans workspaces',
+        fixture.recent.acrossWorkspaces.length === 4
+        && fixture.recent.acrossWorkspaces.every(function (id) { return pageIds.indexOf(id) >= 0 }),
+        fixture.recent.acrossWorkspaces.map(function (id) {
+          return id + (pageIds.indexOf(id) >= 0 ? '=yes' : '=no')
+        }).join(','))
+      check('blank, subagent and archived sessions stay out of the recent list',
+        pageIds.indexOf('blank') < 0 && pageIds.indexOf('sub') < 0
+        && pageIds.indexOf('sa1') < 0 && pageIds.indexOf('old') < 0,
+        pageIds.filter(function (id) { return ['blank', 'sub', 'sa1', 'old'].indexOf(id) >= 0 }).join(','))
+
+      // ── Search reaches past the first page and by workspace ───────────────
+      var searchInput = board().querySelector('.dff-board-search input')
+      check('the board keeps its search box', Boolean(searchInput))
+      if (searchInput) setInput(searchInput, fixture.recent.doneReadTitle)
+      await settled(function () { return shownRecent().length === 1 })
+      var searched = shownRecent()
+      check('search finds a recent session beyond the first page',
+        searched.length === 1
+        && searched[0].getAttribute('data-dff-recent-entry') === fixture.recent.doneReadId,
+        searched.length ? searched[0].getAttribute('data-dff-recent-entry') : 'none')
+      if (searchInput) setInput(searchInput, fixture.recent.doneReadWorkspaceTitle)
+      await settled(function () {
+        return shownRecent().some(function (entry) {
+          return entry.getAttribute('data-dff-recent-entry') === fixture.recent.doneReadId
+        })
+      })
+      var byWorkspace = shownRecent().map(function (entry) { return entry.getAttribute('data-dff-recent-entry') })
+      check('search matches the workspace title and keeps later records',
+        byWorkspace.indexOf(fixture.recent.doneReadId) >= 0, byWorkspace.slice(0, 8).join(','))
+      if (searchInput) setInput(searchInput, '')
+      await settled(function () { return shownRecent().length === 50 })
+      check('clearing the query restores the first page', shownRecent().length === 50, shownRecent().length)
+
+      // ── "Show more" reaches the older rows ────────────────────────────────
+      var moreNow = board().querySelector('[data-dff-recent-more]')
+      if (moreNow) moreNow.click()
+      await settled(function () { return shownRecent().length > 50 })
+      var allIds = shownRecent().map(function (entry) { return entry.getAttribute('data-dff-recent-entry') })
+      check('show more reveals the rest of the recent list', allIds.length > 50, allIds.length)
+      check('the finished-and-read idle session becomes reachable after more',
+        allIds.indexOf(fixture.recent.doneReadId) >= 0)
+      check('blank, subagent and archived sessions stay out after show more too',
+        allIds.indexOf('blank') < 0 && allIds.indexOf('sub') < 0
+        && allIds.indexOf('sa1') < 0 && allIds.indexOf('old') < 0)
+
+      // ── Navigating from a recent entry ────────────────────────────────────
+      var target = board()
+        ? board().querySelector('[data-dff-recent-entry="' + fixture.recent.doneReadId + '"]')
+        : null
+      check('the finished-and-read idle session has a recent entry', Boolean(target))
+      if (target) target.click()
+      await settled(function () { return !board() })
+      check('a recent entry opens the session through uiWorkspace',
+        openedSessions[openedSessions.length - 1] === fixture.recent.doneReadId, openedSessions.join(','))
+      var visitSeen = Boolean(await settled(function () {
+        return activityCalls('visit').some(function (call) { return call.id === fixture.recent.doneReadId })
+      }, 1500))
+      check('opening a recent entry records the visit on the Host', visitSeen)
+      check('both activity actions use POST',
+        activityCalls('read').length > 0 && activityCalls('visit').length > 0
+        && activity.calls.every(function (call) { return call.method === 'POST' }))
+      if (board()) {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+        await settled(function () { return !board() })
+      }
+
+      // ── Zero counts: the sidebar still reaches the recent tab ─────────────
+      var listNow = sessions.getSnapshot()
+      var byIdNow = {}
+      Object.keys(listNow.byId).forEach(function (id) {
+        byIdNow[id] = Object.assign({}, listNow.byId[id], { running: false })
+      })
+      sessions.set(Object.assign({}, listNow, { byId: byIdNow }))
+      statuses.set(new Map())
+      var zeroed = await settled(function () {
+        var pillsNow = region().querySelectorAll('[data-dff-region-pill], .dff-region-pill')
+        if (pillsNow.length !== 3) return null
+        for (var pillIndex = 0; pillIndex < pillsNow.length; pillIndex += 1) {
+          if (pillsNow[pillIndex].getAttribute('data-count') !== '0') return null
+        }
+        return pillsNow
+      })
+      check('every sidebar count can reach zero', Boolean(zeroed))
+      check('the zero-count pills disable themselves',
+        Boolean(zeroed) && Array.prototype.every.call(zeroed, function (pill) { return pill.disabled }))
+      var recentButton = recentControl()
+      check('the sidebar keeps a recent control when every count is zero', Boolean(recentButton))
+      check('the recent control is enabled at zero', Boolean(recentButton) && !recentButton.disabled)
+      if (recentButton) recentButton.click()
+      await settled(board)
+      var selectedTab = board() ? board().querySelector('[data-dff-board-tab][aria-selected="true"]') : null
+      check('the sidebar recent control opens the board on the recent tab',
+        Boolean(selectedTab) && selectedTab.getAttribute('data-dff-board-tab') === 'recent',
+        selectedTab ? selectedTab.getAttribute('data-dff-board-tab') : 'no tab')
+      await settled(function () { return shownRecent().length > 0 })
+      check('idle sessions stay findable at zero counts', shownRecent().length > 0, shownRecent().length)
+      var zeroInput = board() ? board().querySelector('.dff-board-search input') : null
+      if (zeroInput) setInput(zeroInput, fixture.recent.doneReadTitle)
+      await settled(function () { return shownRecent().length === 1 })
+      check('the finished-and-read idle session is still findable at zero counts',
+        shownRecent().length === 1
+        && shownRecent()[0].getAttribute('data-dff-recent-entry') === fixture.recent.doneReadId,
+        shownRecent().length)
+
+      // ── Escape still belongs to the recent board ──────────────────────────
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+      await settled(function () { return !board() })
+      check('Escape closes the recent board', !board())
 
       window.__SESSION_BOARD_CHECK__ = {
         passed: results.every(function (item) { return item.ok }),

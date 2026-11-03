@@ -8,7 +8,13 @@
  * verifies the counts, the state derivation (blank, subagent and archived rows
  * excluded), the ordering inside each column, the filtered open from a pill,
  * navigation through a row, the ⇧⌘G toggle, search, Escape, live updates, the
- * collapsed rail, and the two settings switches.
+ * collapsed rail, and the two settings switches. It also verifies the two tabs:
+ * the shortcut and a status pill land on the status board, the sidebar's Recent
+ * action reaches the recent tab even when every count is zero, the recent list
+ * is cross-workspace and excludes blank/archived/subagent rows, its first page
+ * is 50 rows with "show more", its search reaches rows and workspaces beyond
+ * that page, and a finished-and-read idle session stays findable, navigable and
+ * recorded as visited on the fake Host.
  *
  *   node preview/session-board-check.mjs
  *
@@ -103,7 +109,10 @@ async function main() {
     const pageErrors = []
     page.on('pageerror', (error) => pageErrors.push(String(error && error.message ? error.message : error)))
     await page.goto(`http://127.0.0.1:${port}/preview/session-board-check.html`, { waitUntil: 'load', timeout: 30000 })
-    await page.waitForFunction(() => Boolean(window.__SESSION_BOARD_CHECK__), undefined, { timeout: 25000 })
+    // Generous: a red run (the feature is not implemented yet) spends its
+    // bounded waits on the new Recent assertions, and the check must still
+    // report every failed name instead of timing out at the harness.
+    await page.waitForFunction(() => Boolean(window.__SESSION_BOARD_CHECK__), undefined, { timeout: 60000 })
     const result = await page.evaluate(() => window.__SESSION_BOARD_CHECK__)
     if (!result || !Array.isArray(result.results) || result.results.length === 0) {
       check('fixture produced results', false, result && result.error)

@@ -3,6 +3,16 @@
  * Search, read, and save stay here so the panel and the agent tool share one implementation.
  */
 
+import {
+  SESSION_ACTIVITY_BODY_LIMIT,
+  SESSION_ACTIVITY_DOMAIN,
+  SESSION_ACTIVITY_READ_LIMIT,
+  SessionActivityError,
+  createSessionActivity,
+} from './activity.js'
+
+export { SESSION_ACTIVITY_DOMAIN, SESSION_ACTIVITY_READ_LIMIT, SessionActivityError, createSessionActivity }
+
 export const inject = ['webServer', 'tools', 'fs']
 
 const NAME_FILE_CAP = 8000
@@ -828,6 +838,91 @@ function registerRoutes(ctx) {
   }), 'dsh-file-finder: raw files')
 }
 
+// ── Session activity ───────────────────────────────────────────────────────
+// The panel's board reads and writes durable per-session activity through this
+// one exact route. It is intentionally separate from ACTIONS: the agent tool
+// enum stays file-only. Admission is fail-closed: without the host connection
+// service the route refuses every request instead of silently becoming a
+// loopback-only surface.
+function connectionOf(ctx) {
+  try {
+    return typeof ctx.get === 'function' ? ctx.get('connection') : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function registerSessionActivityRoute(ctx, activity) {
+  const path = '/dsh-file-finder/session-activity'
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'exact',
+    path,
+    handler: async (req, res) => {
+      const connection = connectionOf(ctx)
+      if (!connection || typeof connection.requestRejection !== 'function') {
+        sendJson(res, 503, {
+          ok: false,
+          error: '连接服务不可用，拒绝访问',
+          code: 'connection-unavailable',
+        })
+        return
+      }
+
+      let rejection
+      try {
+        rejection = connection.requestRejection(req)
+      } catch {
+        sendJson(res, 503, {
+          ok: false,
+          error: '连接服务不可用，拒绝访问',
+          code: 'connection-unavailable',
+        })
+        return
+      }
+      if (rejection !== undefined) {
+        const status = Number.isInteger(rejection) && rejection >= 400 && rejection <= 599
+          ? rejection
+          : 403
+        sendJson(res, status, {
+          ok: false,
+          error: status === 401 ? '连接未认证' : '连接无权访问',
+          code: status === 401 ? 'unauthorized' : status === 403 ? 'forbidden' : 'rejected',
+        })
+        return
+      }
+
+      if (req.method !== 'POST') {
+        sendJson(res, 405, { ok: false, error: '只接受 POST', code: 'method-not-allowed' })
+        return
+      }
+
+      const controller = new AbortController()
+      if (typeof res.on === 'function') {
+        res.on('close', () => {
+          if (!res.writableEnded) controller.abort()
+        })
+      }
+      try {
+        const body = await readJson(req, SESSION_ACTIVITY_BODY_LIMIT)
+        const value = await activity.handle(body, controller.signal)
+        if (!res.writableEnded) sendJson(res, 200, value)
+      } catch (error) {
+        if (res.writableEnded) return
+        if (error && error.code === 'too-large') {
+          sendJson(res, 200, { ok: false, error: '请求体过大', code: 'too-large' })
+          return
+        }
+        if (error && error.message === '请求不是合法 JSON') {
+          sendJson(res, 200, { ok: false, error: '请求不是合法 JSON', code: 'invalid-body' })
+          return
+        }
+        console.error('dsh-file-finder: session activity route failed', error)
+        sendJson(res, 200, { ok: false, error: '活动服务内部错误', code: 'internal' })
+      }
+    },
+  }), `dsh-file-finder: ${path}`)
+}
+
 function registerTool(ctx) {
   ctx.effect(() => ctx.tools.register({
     name: 'file_finder',
@@ -878,5 +973,48 @@ export function apply(ctx) {
     registerTool(ctx)
   } catch (error) {
     console.error('dsh-file-finder: tool was not registered', error)
+  }
+  // Storage is an optional enhancement: the file surfaces above must keep
+  // working when `storageDomain` is missing or its open fails. The tracker
+  // listens for session events immediately so events arriving while the domain
+  // is opening are buffered, not dropped.
+  let activity
+  try {
+    activity = createSessionActivity(ctx)
+    if (typeof ctx.effect === 'function') {
+      ctx.effect(() => () => activity.dispose(), 'dsh-file-finder: session activity')
+    }
+    registerSessionActivityRoute(ctx, activity)
+
+    const mount = (scoped) => {
+      try {
+        if (scoped && typeof scoped.effect === 'function') {
+          scoped.effect(() => () => activity.unmount())
+        }
+      } catch (error) {
+        console.error('dsh-file-finder: session activity unmount hook failed', error)
+      }
+      return activity.mount(scoped)
+    }
+
+    if (typeof ctx.inject === 'function') {
+      const fiber = ctx.inject(['storageDomain'], mount)
+      if (fiber && typeof fiber.then === 'function') {
+        Promise.resolve(fiber).catch((error) => {
+          console.error('dsh-file-finder: session activity injection failed', error)
+        })
+      }
+    } else if (typeof ctx.get === 'function' && ctx.get('storageDomain')) {
+      // Hosts without ctx.inject still get the tracker when the service is
+      // already available. The root `inject` export deliberately stays clean.
+      Promise.resolve(mount(ctx)).catch((error) => {
+        console.error('dsh-file-finder: session activity mount failed', error)
+      })
+    }
+  } catch (error) {
+    console.error('dsh-file-finder: session activity was not registered', error)
+    if (activity) {
+      Promise.resolve(activity.dispose()).catch(() => {})
+    }
   }
 }
