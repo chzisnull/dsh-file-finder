@@ -136,7 +136,8 @@ window.__ModuleLoader__.load({
         boardRecentEmpty: '最近没有可显示的会话',
         boardNoMatch: '没有匹配的会话',
         boardMore: '共 {count} 条',
-        boardRecentMore: '查看更多（还有 {count} 条）',
+        boardRecentMore: '再显示 {count} 条',
+        boardRecentProgress: '已显示 {shown} / {total}',
         boardRecentUnknown: '时间未知',
         boardRecentSourceActivity: '活动',
         boardRecentSourceVisit: '访问',
@@ -321,7 +322,8 @@ window.__ModuleLoader__.load({
         boardRecentEmpty: 'No recent sessions',
         boardNoMatch: 'No session matches',
         boardMore: '{count} in total',
-        boardRecentMore: 'Show more ({count} left)',
+        boardRecentMore: 'Show {count} more',
+        boardRecentProgress: 'Showing {shown} of {total}',
         boardRecentUnknown: 'Time unknown',
         boardRecentSourceActivity: 'Activity',
         boardRecentSourceVisit: 'Visited',
@@ -4614,41 +4616,51 @@ window.__ModuleLoader__.load({
         'data-dff-board-panel': 'recent',
         'data-dff-recent-total': String(recent.total),
       },
-      activity.readError
-        ? h('p', { className: 'dff-recent-notice', role: 'status', 'data-dff-recent-notice': 'read' },
-          t('boardRecentReadFailed'))
-        : null,
-      activity.visitError
-        ? h('p', { className: 'dff-recent-notice', role: 'status', 'data-dff-recent-notice': 'visit' },
-          t('boardRecentVisitFailed'))
-        : null,
-      recent.rows.length
-        ? h('div', { className: 'dff-recent-list' }, recent.rows.map((row) => h('button', {
-          key: row.id,
-          type: 'button',
-          className: 'dff-board-row dff-recent-row',
-          'data-dff-recent-entry': row.id,
-          'data-state': row.state,
-          'data-source': row.recentSource,
-          'data-approximate': row.approximate ? 'true' : undefined,
-          'aria-label': textOf(t, 'boardOpenSession', { title: row.title }),
-          onClick: () => openSessionRow(row.id),
-        },
-        h('span', { className: 'dff-board-rowtitle' }, row.title),
-        h('span', { className: 'dff-recent-meta' },
-          h('span', { className: 'dff-recent-state', 'data-state': row.state }, stateLabel(row.state)),
-          row.workspace ? h('span', { className: 'dff-board-ws' }, row.workspace) : null,
-          h('span', { className: 'dff-recent-when' },
-            sourceLabel(row) ? h('span', { className: 'dff-recent-source' }, sourceLabel(row)) : null,
-            h('span', { className: 'dff-recent-age' }, recentAge(row)))))))
-        : h('p', { className: 'dff-board-empty' }, query ? t('boardNoMatch') : t('boardRecentEmpty')),
+      h('div', { className: 'dff-recent-scroll' },
+        activity.readError
+          ? h('p', { className: 'dff-recent-notice', role: 'status', 'data-dff-recent-notice': 'read' },
+            t('boardRecentReadFailed'))
+          : null,
+        activity.visitError
+          ? h('p', { className: 'dff-recent-notice', role: 'status', 'data-dff-recent-notice': 'visit' },
+            t('boardRecentVisitFailed'))
+          : null,
+        recent.rows.length
+          ? h('div', { className: 'dff-recent-list' }, recent.rows.map((row) => h('button', {
+            key: row.id,
+            type: 'button',
+            className: 'dff-board-row dff-recent-row',
+            'data-dff-recent-entry': row.id,
+            'data-state': row.state,
+            'data-source': row.recentSource,
+            'data-approximate': row.approximate ? 'true' : undefined,
+            'aria-label': textOf(t, 'boardOpenSession', { title: row.title }),
+            onClick: () => openSessionRow(row.id),
+          },
+          h('span', { className: 'dff-board-rowtitle' }, row.title),
+          h('span', { className: 'dff-recent-meta' },
+            h('span', { className: 'dff-recent-state', 'data-state': row.state }, stateLabel(row.state)),
+            row.workspace ? h('span', { className: 'dff-board-ws' }, row.workspace) : null,
+            h('span', { className: 'dff-recent-when' },
+              sourceLabel(row) ? h('span', { className: 'dff-recent-source' }, sourceLabel(row)) : null,
+              h('span', { className: 'dff-recent-age' }, recentAge(row)))))))
+          : h('p', { className: 'dff-board-empty' }, query ? t('boardNoMatch') : t('boardRecentEmpty'))),
+      // A rail pinned under the list: the page control must stay reachable
+      // while the list scrolls, instead of sitting at the end of the scroll.
       recent.hasMore
-        ? h('button', {
-          type: 'button',
-          className: 'dff-recent-more',
-          'data-dff-recent-more': 'true',
-          onClick: () => setRecentLimit((value) => value + RECENT_PAGE),
-        }, textOf(t, 'boardRecentMore', { count: recent.total - recent.rows.length }))
+        ? h('div', { className: 'dff-recent-foot' },
+          h('span', { className: 'dff-recent-progress', 'data-dff-recent-progress': 'true' },
+            textOf(t, 'boardRecentProgress', { shown: recent.rows.length, total: recent.total })),
+          h('button', {
+            type: 'button',
+            className: 'dff-recent-more',
+            'data-dff-recent-more': 'true',
+            onClick: () => setRecentLimit((value) => value + RECENT_PAGE),
+          },
+          h('span', null, textOf(t, 'boardRecentMore', {
+            count: Math.min(RECENT_PAGE, recent.total - recent.rows.length),
+          })),
+          h(ChevronIcon, { size: 12 })))
         : null)
 
       return h(React.Fragment, null,
@@ -6009,7 +6021,12 @@ window.__ModuleLoader__.load({
         display: flex; flex-direction: column;
         flex: 1 1 auto; min-height: 0;
       }
+      /* The panel is a fixed rail under a scrolling list: the page control must
+         stay reachable without scrolling to the end of a 50-row page. */
       .dff-recent {
+        display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+      }
+      .dff-recent-scroll {
         display: flex; flex-direction: column; gap: 8px; min-height: 0;
         padding: 12px 16px 16px; overflow: auto;
       }
@@ -6040,11 +6057,22 @@ window.__ModuleLoader__.load({
         background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 9%, transparent);
         color: var(--dsw-alias-state-warn-label); font-size: 11.5px;
       }
+      .dff-recent-foot {
+        display: flex; align-items: center; gap: 12px; flex: none;
+        padding: 8px 16px; border-top: 1px solid var(--dsw-alias-border-l1);
+        background: var(--dsw-alias-bg-overlay);
+      }
+      .dff-recent-progress {
+        margin-right: auto; color: var(--dsw-alias-label-tertiary);
+        font-size: 11px; font-variant-numeric: tabular-nums; letter-spacing: .01em;
+      }
       .dff-recent-more {
-        align-self: center; height: 30px; padding: 0 14px; border-radius: 8px;
+        display: inline-flex; align-items: center; gap: 4px; flex: none;
+        height: 28px; padding: 0 10px 0 12px; border-radius: 7px;
         border: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1);
         color: var(--dsw-alias-link); font: inherit; font-size: 12px; cursor: pointer;
       }
+      .dff-recent-more svg { flex: none; opacity: .85; }
       .dff-recent-more:hover { background: var(--dsw-alias-interactive-bg-hover); }
       .dff-recent-more:focus-visible {
         outline: 2px solid color-mix(in srgb, var(--dsw-alias-state-business-primary) 60%, transparent);

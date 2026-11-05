@@ -62,6 +62,7 @@ const CAPTURES = [
   // The session board: the counts at the sidebar foot, then the board itself.
   { key: 'session-region', hash: 'session-region', viewport: MAIN_VIEWPORT },
   { key: 'session-board', hash: 'session-board', viewport: MAIN_VIEWPORT },
+  { key: 'session-recent', hash: 'session-recent', viewport: MAIN_VIEWPORT },
   // Narrower viewport: the board stacks its three columns into one.
   { key: 'session-board-narrow', hash: 'session-board-narrow', viewport: { width: 1024, height: 860 } },
 ]
@@ -80,6 +81,7 @@ const REQUIRED_KEYS = [
   'palette-name',
   'session-region',
   'session-board',
+  'session-recent',
   'palette-content',
   'palette-browse',
   'palette-empty',
@@ -312,6 +314,12 @@ function collectInfo() {
     hasBoard: Boolean(document.querySelector('[data-dff-board]')),
     boardCols: document.querySelectorAll('[data-dff-board-col]').length,
     boardRows: document.querySelectorAll('[data-dff-board-row]').length,
+    boardTab: (() => {
+      const active = document.querySelector('[data-dff-board-tab][aria-selected="true"]')
+      return active ? String(active.getAttribute('data-dff-board-tab') || '') : ''
+    })(),
+    recentRows: document.querySelectorAll('[data-dff-recent-entry]').length,
+    hasRecentMore: Boolean(document.querySelector('[data-dff-recent-more]')),
     boardRect: rectOf(document.querySelector('[data-dff-board]')),
     headingCount: document.querySelectorAll('h1, h2, h3').length,
     controlCount: document.querySelectorAll('button, input, select, textarea').length,
@@ -426,6 +434,15 @@ function validateState(stateKey, info, pushWarning) {
       if (!info.hasBoard) fail('the session board did not open on the shortcut')
       if (info.boardCols !== 3) fail(`expected three board columns, found ${info.boardCols}`)
       if (info.boardRows < 8) fail(`board looks empty (${info.boardRows} rows)`)
+      if (info.documentOverflowX > 2) fail('the board overflows horizontally')
+      break
+    }
+    case 'session-recent': {
+      if (!info.hasBoard) fail('the session board did not open on the shortcut')
+      if (info.boardTab !== 'recent') fail(`expected the recent tab, got "${info.boardTab}"`)
+      if (info.recentRows < 10) fail(`the recent list looks empty (${info.recentRows} rows)`)
+      if (!info.hasRecentMore) fail('the recent shot needs more sessions than one page')
+      if (info.boardCols !== 0) fail('the status columns must not render on the recent tab')
       if (info.documentOverflowX > 2) fail('the board overflows horizontally')
       break
     }

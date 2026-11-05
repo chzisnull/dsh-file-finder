@@ -38,6 +38,7 @@ Each run rewrites `preview/shots/`:
 | `settings-tall-{light,dark}.png` | 1100×1480 @2x | whole settings page for review (all cards + footer) |
 | `session-region-{light,dark}.png` | 1440×900 @2x | the three session counts at the sidebar foot, board closed |
 | `session-board-{light,dark}.png` | 1440×900 @2x | the board open over the app, Status board tab: three columns, with the two tabs and the sidebar Recent entry |
+| `session-recent-{light,dark}.png` | 1440×900 @2x | the Recent sessions tab with more rows than one page: the list plus its pinned page rail |
 | `session-board-narrow-{light,dark}.png` | 1024×860 @2x | the same board with its columns stacked into one |
 | `palette-open-motion-light.png` | 1440×900 @2x | extra frame with motion enabled (opening) |
 
@@ -92,8 +93,9 @@ http://127.0.0.1:<port>/preview/index.html?theme=light&motion=off#settings
 | `#editor-dirty` | editor made dirty, then "back to search" so the confirm banner shows |
 | `#settings` | `settings.section` mounted on a fake DSH settings page |
 | `#session-region` | the fake session dataset counted in the sidebar foot (`sidebar.footer.action`) |
-| `#session-board` | the board overlay opened with a synthetic ⇧⌘G keydown (Status board tab; the Recent tab has no capture state, its behaviour is checked in `session-board-check.html`) |
+| `#session-board` | the board overlay opened with a synthetic ⇧⌘G keydown (Status board tab) |
 | `#session-board-narrow` | the same board captured at 1024px, where its columns stack |
+| `#session-recent` | the same board switched to the Recent sessions tab, with 60 extra sessions so the page rail shows |
 
 Query parameters: `theme=light|dark`, `motion=off|on` (default `off`), `lang=en|zh`,
 `capture=open` (signal ready as soon as the palette mounts; used for the motion frame).

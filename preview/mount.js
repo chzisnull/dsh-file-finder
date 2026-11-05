@@ -33,6 +33,7 @@
     'session-region',
     'session-board',
     'session-board-narrow',
+    'session-recent',
   ]
   const CWD = '/workspace/dsh-file-finder'
 
@@ -431,8 +432,12 @@ export function rankName(query, displayPath, options = {}) {
   }
 
   // One dataset for every preview surface (preview/fixtures/sessions.js), so the
-  // screenshots and the browser checks cannot drift apart.
-  const fixture = window.dffSessionFixture.create({ lang })
+  // screenshots and the browser checks cannot drift apart. The Recent tab shot
+  // needs more sessions than one page holds, so that state alone gets extras.
+  const fixture = window.dffSessionFixture.create({
+    lang,
+    idleExtras: state === 'session-recent' ? 60 : 0,
+  })
   sessionFixture = fixture
   const sessions = { list: observable(fixture.list) }
   const uiSession = { sessionStatus: observable(fixture.statuses) }
@@ -924,6 +929,13 @@ export function rankName(query, displayPath, options = {}) {
     if (state === 'session-board-narrow') {
       await waitFor(() => document.querySelectorAll('[data-dff-board-col]').length === 3, 3000, 'three board columns')
     }
+    if (state === 'session-recent') {
+      const tab = document.querySelector('[data-dff-board-tab="recent"]')
+      if (!tab) throw new Error('the recent tab did not render')
+      tab.click()
+      await waitFor(() => document.querySelectorAll('[data-dff-recent-entry]').length > 0, 3000, 'recent rows')
+      await new Promise((resolve) => setTimeout(resolve, 220))
+    }
   }
 
   async function mountSettings() {
@@ -974,7 +986,8 @@ export function rankName(query, displayPath, options = {}) {
 
     if (state === 'settings') await mountSettings()
     else if (state === 'session-region') await mountSessionRegion()
-    else if (state === 'session-board' || state === 'session-board-narrow') await mountSessionBoard()
+    else if (state === 'session-board' || state === 'session-board-narrow'
+      || state === 'session-recent') await mountSessionBoard()
     else await mountPalette()
 
     await markReady()

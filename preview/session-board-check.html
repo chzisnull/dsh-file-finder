@@ -409,7 +409,7 @@
       check('the recent list starts with one page of 50', pageOne.length === 50, pageOne.length)
       // A full page must scroll inside the dialog instead of growing past it:
       // the list is longer than the board, so the wheel has to stay inside.
-      var recentScroller = board() ? board().querySelector('.dff-recent') : null
+      var recentScroller = board() ? board().querySelector('.dff-recent-scroll') : null
       var boardBox = board() ? board().getBoundingClientRect() : null
       var scrollerBox = recentScroller ? recentScroller.getBoundingClientRect() : null
       check('the recent list scrolls inside the dialog',
@@ -420,6 +420,19 @@
           ? recentScroller.scrollHeight + '>' + recentScroller.clientHeight
             + ' bottom ' + Math.round(scrollerBox.bottom) + '/' + Math.round(boardBox.bottom)
           : 'no scroller')
+      // The page control is a rail pinned under the list, so it is reachable
+      // without scrolling to the bottom of the page (and does not scroll away).
+      var foot = board() ? board().querySelector('.dff-recent-foot') : null
+      var footBox = foot ? foot.getBoundingClientRect() : null
+      check('the page control sits on a rail under the list, not in the scroll',
+        Boolean(foot && footBox && boardBox)
+        && Math.abs(footBox.bottom - boardBox.bottom) < 3,
+        footBox ? 'foot bottom ' + Math.round(footBox.bottom) + ' board ' + Math.round(boardBox.bottom) : 'no rail')
+      check('the rail carries the progress text and the page button',
+        Boolean(foot
+          && foot.querySelector('[data-dff-recent-progress]')
+          && foot.querySelector('[data-dff-recent-more]')),
+        foot ? text(foot) : '')
       var more = board() ? board().querySelector('[data-dff-recent-more]') : null
       check('a full recent page offers a way to see more', Boolean(more))
       var pageIds = pageOne.map(function (entry) { return entry.getAttribute('data-dff-recent-entry') })
