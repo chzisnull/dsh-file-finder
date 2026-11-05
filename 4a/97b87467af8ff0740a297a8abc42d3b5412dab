@@ -1,0 +1,25 @@
+GLOSSARY.md
+  s_7c8f3d200ce616::t_4edd296739d5a0 48-50,52,66-84,90
+docs/adr/0003-recent-sessions.md
+  s_7c8f3d200ce616::t_fed1a321988ce4 3-6
+preview/fixtures/sessions.js
+  s_7c8f3d200ce616::t_d52308a8d44007 17-21
+test/ui-contract.test.mjs
+  s_7c8f3d200ce616::t_0363e40598ce4b 342
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4a97b87467af8ff0740a297a8abc42d3b5412dab",
+  "prompts": {},
+  "sessions": {
+    "s_7c8f3d200ce616": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "58fb18ee-8b19-4249-be71-0bc640fc1022",
+        "model": "unknown"
+      },
+      "human_author": "caohanzhou123@163.com <caohanzhou123@163.com>"
+    }
+  }
+}
