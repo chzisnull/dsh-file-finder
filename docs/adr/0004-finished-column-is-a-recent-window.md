@@ -45,9 +45,11 @@ session**:
   Recent tab's row state keep "已结束·未读"/"Finished · unread", because those
   still report DSH's unread fact and nothing else.
 - **Data.** The status board reads the existing host session-activity route
-  once per open (the Recent tab already reads it and still polls it). No new
-  storage domain, record field, route or schema version is introduced; a failed
-  or missing read falls back to the summary time already shown for such rows.
+  when it opens, when the tab changes and when a session changes state (the
+  Recent tab already reads it and still polls it). No new storage domain, record
+  field, route or schema version is introduced. A failed read drops the cached
+  activity stamps rather than ranking on times the host could not confirm, so
+  the window falls back to the summary time and marks it approximate.
 
 ## Consequences
 
@@ -57,7 +59,14 @@ session**:
   to a populated column is expected and both are accurate.
 - "Completed" here is a recency proxy, not a success claim and not a
   completion log: read state and task outcome still cannot be restored across
-  a restart, and a session that ended long ago is not listed at all.
+  a restart, and once five newer ended sessions exist an older one is no longer
+  listed at all.
+- The sidebar's finished count stays unread-only and the three pills stay
+  disabled at zero, so after a reload that cleared `completionUnread` the
+  finished pill can be a disabled "0" beside a populated column. ⇧⌘G and the
+  always-enabled Recent entry remain the routes to the Status board; widening
+  the count or enabling the pill would turn an attention counter into a history
+  counter.
 - Subagents still never own rows; their activity ranks the session they belong
   to, through the same rollup.
 - No new rendering surface, shortcut or setting is added; the Recent tab is

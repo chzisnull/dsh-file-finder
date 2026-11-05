@@ -1,6 +1,9 @@
 # ADR 0002 — The session board lives inside `dsh-file-finder`
 
-Status: accepted (0.13.0)
+Status: accepted (0.13.0). Amended by ADR 0004: the status board's third column
+is now a five-card recent window over ended sessions (read ones included), and
+only the sidebar count and the Recent tab's row state keep the unread-only
+meaning described below.
 
 ## Context
 

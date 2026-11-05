@@ -4244,7 +4244,11 @@ window.__ModuleLoader__.load({
           activityStore.patch({ records: merged, readError: false, reading: false })
         } catch {
           if (seq !== activityStore.readSeq) return
-          activityStore.patch({ readError: true, reading: false })
+          // A failed read drops the cache instead of ranking on times the host
+          // could not confirm: the Recent tab then labels every age as the
+          // approximate summary time and says the read failed, and the finished
+          // window falls back to the same summary time.
+          activityStore.patch({ records: {}, readError: true, reading: false })
         }
       },
       visit(id) {
@@ -4518,18 +4522,22 @@ window.__ModuleLoader__.load({
         if (boardStore.state.open) boardStore.close()
       }, [settings.enabled])
 
-      // The status board reads the host's activity facts once per open: the
-      // finished column ranks its recent window by them. Opening the Recent tab
-      // reads the same records; that tab additionally polls, because DSH exposes
-      // no client observable for "the Agent did something in a session you are
-      // not watching". Neither path touches the token stream.
+      // The board reads the host's activity facts when it opens, when the tab
+      // changes and whenever a session changes state. Both jobs need them: the
+      // finished column ranks its recent window by activity/visit/summary, and
+      // a session that stops while the board stays open has to be ranked by its
+      // end rather than its stale summary time. The read is bounded (200 ids
+      // per request) and never follows a streamed token. The Recent tab
+      // additionally polls, because DSH exposes no client observable for "the
+      // Agent did something in a session you are not watching".
       const idsKey = rows.map((row) => row.id).join('\u0000')
+      const statesKey = rows.map((row) => `${row.id}:${row.state}`).join('\u0000')
       useEffect(() => {
         if (!request.open || !settings.enabled) return undefined
         const ids = idsKey ? idsKey.split('\u0000') : []
         activityStore.read(ids)
         return undefined
-      }, [request.open, settings.enabled, idsKey])
+      }, [request.open, settings.enabled, idsKey, statesKey, tab])
 
       useEffect(() => {
         if (!request.open || tab !== 'recent' || !settings.enabled) return undefined

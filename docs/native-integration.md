@@ -923,7 +923,8 @@ Since 0.14.0 it is one dialog with two peer tabs: the **Status board** below,
 and **Recent sessions**, which adds the plugin's own durable activity and
 access times on the host (§11). The status half reads DSH facts plus, since
 0.15.0, the same host activity read used by Recent — no new surface and no new
-data: it reads five surfaces, all of them declared in package types:
+data. It reads four DSH surfaces declared in package types plus the plugin's own
+activity route:
 
 | Read | Shape | Used for |
 | --- | --- | --- |
@@ -965,10 +966,14 @@ user read the session or reloaded. The status column is therefore labelled
 finished-unread rows plus idle ones (blank, archived and subagent sessions
 still never own a row) — ranked by the newest of Activity time, Access time and
 the session summary time from §11. Its header count is the number of cards it
-lists, not a total over every ended session, and it has no "in total" line. A
-failed activity read or a missing record falls back to the summary time, which
-the row marks as approximate. The sidebar pill keeps the unread count, so a
-zero pill beside a populated column is expected and both numbers are accurate.
+lists, not a total over every ended session, and it has no "in total" line. The
+board reads the activity route on open, on a tab change and whenever a session
+changes state, so a run that stops while the board stays open is ranked by its
+end. A failed read drops the cached activity stamps instead of ranking on
+unconfirmed times; the window then falls back to the summary time, which the row
+marks as approximate. The sidebar pill keeps the unread count (and stays
+disabled at zero), so a zero pill beside a populated column is expected and both
+numbers are accurate; ⇧⌘G and the Recent entry remain the routes to the board.
 
 **Degradation.** A shell without `uiSession` still answers `running` from
 `sessions.list` rows; a shell without `uiWorkspace` cannot navigate. Nothing in

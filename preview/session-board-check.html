@@ -36,6 +36,14 @@
       var summary = fixture.list.byId[id]
       records[id] = { activityAt: Number(summary.updatedAt) || 0, visitedAt: 0 }
     })
+    // The finished window has to rank by the host's activity time, not by DSH's
+    // prompt time. These stamps put d1 and idle-0 ahead of d2 even though their
+    // summaries are older: the newest fact wins, so an end recorded after the
+    // prompt reorders the window.
+    var HOST_ACTIVITY_MINUTES = { d1: 1, 'idle-0': 10 }
+    Object.keys(HOST_ACTIVITY_MINUTES).forEach(function (id) {
+      if (records[id]) records[id].activityAt = Date.now() - HOST_ACTIVITY_MINUTES[id] * 60_000
+    })
     function reply(payload) {
       return Promise.resolve(new Response(JSON.stringify(payload), {
         status: 200,
@@ -291,13 +299,23 @@
       // or unread) by the newest activity fact and lists the newest five, while
       // the sidebar pill keeps counting the unread fact it can act on.
       var finishedCol = board().querySelector('[data-dff-board-col="finished"]')
+      // The host activity read that ranks this window lands after the first
+      // paint (the fallback is the approximate prompt time), so wait for the
+      // exact ages before pinning the order.
+      await settled(function () {
+        var first = board() && board().querySelector('[data-dff-board-col="finished"] [data-dff-board-row]')
+        return first && text(first).indexOf('recentApprox') < 0 ? true : null
+      }, 2000)
       var finishedRows = finishedCol ? Array.prototype.slice.call(finishedCol.querySelectorAll('[data-dff-board-row]')) : []
       var finishedIds = finishedRows.map(function (row) { return row.getAttribute('data-dff-board-row') })
       check('the column names the recent window, not unread only',
         text(finishedCol && finishedCol.querySelector('.dff-board-colhead strong')) === 'boardFinishedColumn',
         text(finishedCol && finishedCol.querySelector('.dff-board-colhead strong')))
       check('the finished column lists the five newest ended sessions',
-        finishedIds.join(',') === 'd1,d2,idle-0,idle-1,idle-2', finishedIds.join(','))
+        finishedIds.join(',') === 'd1,idle-0,d2,idle-1,idle-2', finishedIds.join(','))
+      check('the window ranks by the recorded end, not the newer prompt',
+        finishedIds.indexOf('idle-0') >= 0 && finishedIds.indexOf('d2') > finishedIds.indexOf('idle-0'),
+        finishedIds.join(','))
       check('the finished count is the window size, not the history total',
         text(finishedCol && finishedCol.querySelector('.dff-board-n')) === '5',
         text(finishedCol && finishedCol.querySelector('.dff-board-n')))
@@ -311,12 +329,6 @@
         }), finishedIds.join(','))
       var finishedEmptyNote = finishedCol ? finishedCol.querySelector('.dff-board-more') : null
       check('a capped recent window shows no unreachable total', !finishedEmptyNote)
-      // The host read this column ranks by lands after the first paint; the
-      // fallback is the approximate summary time, so wait for the exact age.
-      await settled(function () {
-        var first = board() && board().querySelector('[data-dff-board-col="finished"] [data-dff-board-row]')
-        return first && text(first).indexOf('recentApprox') < 0 ? true : null
-      }, 1500)
       var firstFinished = board().querySelector('[data-dff-board-col="finished"] [data-dff-board-row]')
       check('finished rows show the host activity time, not the approximate prompt time',
         Boolean(firstFinished) && text(firstFinished).indexOf('ageMinute') >= 0
@@ -434,6 +446,9 @@
       })
       check('switching back shows the status columns again', visible(board().querySelector('[data-dff-board-col]')))
       var recentTabNow = board().querySelector('[data-dff-board-tab="recent"]')
+      // Forget every earlier read so the assertion below can only be satisfied
+      // by the read that entering the Recent tab performs right away.
+      activity.calls.length = 0
       if (recentTabNow) recentTabNow.click()
       await settled(function () { return shownRecent().length > 0 })
 
@@ -442,7 +457,7 @@
       var readSeen = Boolean(await settled(function () {
         return activityCalls('read').some(function (call) { return call.ids.length > 0 })
       }, 1500))
-      check('the board asks the Host for session activity records', readSeen)
+      check('entering the recent tab reads the Host activity records at once', readSeen)
 
       // ── The recent list: one page, cross-workspace, no leftovers ──────────
       await settled(function () { return shownRecent().length === 50 ? true : null })

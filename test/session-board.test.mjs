@@ -257,6 +257,33 @@ test('the finished column is a recent window over every ended session', () => {
   // The search narrows the window too.
   const searched = board.boardColumnsOf(rows, 'idle-5', records).find((item) => item.state === 'finished')
   assert.deepEqual(searched.rows.map((row) => row.id), ['idle-5'])
+
+  // Exactly five ended sessions is not a cut, so nothing claims "in total".
+  const fiveRows = rows.filter((row) => row.id !== 'idle-5')
+  const five = board.boardColumnsOf(fiveRows, '', records).find((item) => item.state === 'finished')
+  assert.equal(five.rows.length, 5)
+  assert.equal(five.total, 5)
+
+  // A single ended session fills the window alone, and an empty window is empty.
+  const single = board.boardColumnsOf(rows.filter((row) => row.id === 'idle-2'), '', records)
+    .find((item) => item.state === 'finished')
+  assert.deepEqual(single.rows.map((row) => row.id), ['idle-2'])
+  assert.equal(single.total, 1)
+  const activeOnly = board.boardColumnsOf(rows.filter((row) => row.id === 'running' || row.id === 'pending'), '', records)
+    .find((item) => item.state === 'finished')
+  assert.deepEqual(activeOnly.rows, [])
+  assert.equal(activeOnly.total, 0)
+
+  // A visit the host has not confirmed ranks the window but stays approximate.
+  const unconfirmed = board.boardColumnsOf(
+    rows,
+    '',
+    { 'idle-2': { activityAt: 0, visitedAt: now - MINUTE } },
+    { 'idle-2': true },
+  ).find((item) => item.state === 'finished')
+  assert.equal(unconfirmed.rows[0].id, 'idle-2')
+  assert.equal(unconfirmed.rows[0].recentSource, 'visit')
+  assert.equal(unconfirmed.rows[0].approximate, true)
 })
 
 test('a column caps its rows and reports the real total', () => {
@@ -386,6 +413,7 @@ test('the activity adapter uses one route and reports read or visit failures', a
     globalThis.fetch = async () => { throw new Error('offline') }
     await activity.read(['a'])
     assert.equal(activity.snapshot().readError, true, 'a missing host route is a visible read degradation')
+    assert.deepEqual(activity.snapshot().records, {}, 'an unconfirmed cache is dropped, not ranked as fact')
     await activity.visit('a')
     assert.equal(activity.snapshot().visitError, true, 'a rejected visit is never reported as persisted')
   } finally {

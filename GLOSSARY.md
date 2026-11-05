@@ -77,9 +77,9 @@ DSH's finished-unread sessions plus idle ones, read or not — ranked by the
 newest of Activity time, Access time and DSH's session summary time. It answers
 "what just finished?", so its count is the number of cards it lists, not a total
 over every ended session. It is a recency proxy, not a completion log: it does
-not say the task succeeded and it survives neither a restart's read state nor a
-session that ended long ago. The sidebar's finished count still reports only
-the finished-unread fact.
+not say the task succeeded, it is rebuilt from live status and recency on every
+open, and a session that ended long ago is not listed. The sidebar's finished
+count still reports only the finished-unread fact.
 _Avoid_: history, completed tasks, done list, 已完成 as an unbounded
 history, a sixth column
 
