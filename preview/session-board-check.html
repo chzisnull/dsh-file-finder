@@ -407,6 +407,19 @@
       await settled(function () { return shownRecent().length === 50 ? true : null })
       var pageOne = shownRecent()
       check('the recent list starts with one page of 50', pageOne.length === 50, pageOne.length)
+      // A full page must scroll inside the dialog instead of growing past it:
+      // the list is longer than the board, so the wheel has to stay inside.
+      var recentScroller = board() ? board().querySelector('.dff-recent') : null
+      var boardBox = board() ? board().getBoundingClientRect() : null
+      var scrollerBox = recentScroller ? recentScroller.getBoundingClientRect() : null
+      check('the recent list scrolls inside the dialog',
+        Boolean(scrollerBox && boardBox)
+        && recentScroller.scrollHeight > recentScroller.clientHeight + 1
+        && scrollerBox.bottom <= boardBox.bottom + 1,
+        recentScroller
+          ? recentScroller.scrollHeight + '>' + recentScroller.clientHeight
+            + ' bottom ' + Math.round(scrollerBox.bottom) + '/' + Math.round(boardBox.bottom)
+          : 'no scroller')
       var more = board() ? board().querySelector('[data-dff-recent-more]') : null
       check('a full recent page offers a way to see more', Boolean(more))
       var pageIds = pageOne.map(function (entry) { return entry.getAttribute('data-dff-recent-entry') })

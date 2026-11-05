@@ -4701,6 +4701,7 @@ window.__ModuleLoader__.load({
           // One panel element for both tabs: an inactive tab's aria-controls
           // must not point at an element that is not rendered.
           id: 'dff-board-panel',
+          className: 'dff-board-panel',
           role: 'tabpanel',
           'aria-labelledby': `dff-board-tab-${tab}`,
         }, tab === 'status' ? statusPanel : recentPanel)))
@@ -6000,6 +6001,13 @@ window.__ModuleLoader__.load({
       .dff-board-tab:focus-visible {
         outline: 2px solid color-mix(in srgb, var(--dsw-alias-state-business-primary) 60%, transparent);
         outline-offset: -4px; border-radius: 6px;
+      }
+      /* The tab panel is the flexible slot between the tabs and the dialog
+         edge: without a flex basis of its own the list grows to content height
+         and the dialog's overflow:hidden clips it, leaving no scrollbar. */
+      .dff-board-panel {
+        display: flex; flex-direction: column;
+        flex: 1 1 auto; min-height: 0;
       }
       .dff-recent {
         display: flex; flex-direction: column; gap: 8px; min-height: 0;
