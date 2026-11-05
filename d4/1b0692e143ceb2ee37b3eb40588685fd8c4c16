@@ -1,0 +1,19 @@
+preview/fixtures/sessions.js
+  s_7c8f3d200ce616::t_7460ea62630df2 17-22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d41b0692e143ceb2ee37b3eb40588685fd8c4c16",
+  "prompts": {},
+  "sessions": {
+    "s_7c8f3d200ce616": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "58fb18ee-8b19-4249-be71-0bc640fc1022",
+        "model": "group/auto-claude-opus-5-5"
+      },
+      "human_author": "caohanzhou123@163.com <caohanzhou123@163.com>"
+    }
+  }
+}
