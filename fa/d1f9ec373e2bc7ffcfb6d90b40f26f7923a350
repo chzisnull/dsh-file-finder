@@ -1,0 +1,22 @@
+client.js
+  h_6c8eb9d3df9b52 139-140,325-326,4619-4649,4651-4663,6024-6025,6027-6029,6060-6068,6070-6071,6075
+preview/README.md
+  h_6c8eb9d3df9b52 41,96,98
+preview/mount.js
+  h_6c8eb9d3df9b52 36,435-440,932-938,989-990
+preview/screenshot.mjs
+  h_6c8eb9d3df9b52 65,84,317-322,440-448
+preview/session-board-check.html
+  h_6c8eb9d3df9b52 412,423-435
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fad1f9ec373e2bc7ffcfb6d90b40f26f7923a350",
+  "prompts": {},
+  "humans": {
+    "h_6c8eb9d3df9b52": {
+      "author": "caohanzhou123@163.com <caohanzhou123@163.com>"
+    }
+  }
+}
