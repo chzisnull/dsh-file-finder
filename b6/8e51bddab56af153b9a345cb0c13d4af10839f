@@ -1,0 +1,16 @@
+package.json
+  h_6c8eb9d3df9b52 3
+preview/index.html
+  h_6c8eb9d3df9b52 67
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b68e51bddab56af153b9a345cb0c13d4af10839f",
+  "prompts": {},
+  "humans": {
+    "h_6c8eb9d3df9b52": {
+      "author": "caohanzhou123@163.com <caohanzhou123@163.com>"
+    }
+  }
+}
