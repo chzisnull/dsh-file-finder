@@ -215,6 +215,50 @@ test('columns order by longest wait first, then by latest activity', () => {
   assert.deepEqual(order.finished, ['finished-new', 'finished-old'])
 })
 
+test('the finished column is a recent window over every ended session', () => {
+  const list = listOf([
+    summary('unread-old', { updatedAt: now - 60 * MINUTE }),
+    summary('idle-new', { updatedAt: now - 5 * MINUTE }),
+    summary('idle-2', { updatedAt: now - 6 * MINUTE }),
+    summary('idle-3', { updatedAt: now - 7 * MINUTE }),
+    summary('idle-4', { updatedAt: now - 8 * MINUTE }),
+    summary('idle-5', { updatedAt: now - 9 * MINUTE }),
+    summary('running', { updatedAt: now - MINUTE }),
+    summary('pending', { updatedAt: now - MINUTE }),
+  ])
+  const statuses = statusMap({
+    'unread-old': statusOf({ completionUnread: true }),
+    running: statusOf({ running: true }),
+    pending: statusOf({ pendingInteraction: { kind: 'approval' } }),
+  })
+  const rows = board.sessionRowsOf(list, statuses, [], new Map(), new Map())
+  // DSH's prompt time says the unread session is old, but the host saw its Agent
+  // finish two minutes ago: the column ranks by the newest fact it has, so the
+  // just-finished work is not buried under a fresher prompt.
+  const records = { 'unread-old': { activityAt: now - 2 * MINUTE, visitedAt: 0 } }
+  const column = board.boardColumnsOf(rows, '', records).find((item) => item.state === 'finished')
+  assert.deepEqual(column.rows.map((row) => row.id), [
+    'unread-old', 'idle-new', 'idle-2', 'idle-3', 'idle-4',
+  ], 'five newest ended sessions, unread and read alike')
+  assert.deepEqual(column.rows.map((row) => row.state), [
+    'finished', 'idle', 'idle', 'idle', 'idle',
+  ], 'a read idle session keeps its own state inside the recent window')
+  assert.equal(column.rows[0].recentSource, 'activity')
+  assert.equal(column.total, 5, 'the column reports the cards it lists, not every ended session')
+  assert.equal(column.rows.some((row) => row.id === 'idle-5'), false, 'the sixth ended session is cut')
+  assert.equal(column.rows.some((row) => row.id === 'running' || row.id === 'pending'), false)
+
+  // Without host records the window still works on the summary time.
+  const fallback = board.boardColumnsOf(rows, '', {}).find((item) => item.state === 'finished')
+  assert.equal(fallback.rows.length, 5)
+  assert.equal(fallback.rows[0].id, 'idle-new', 'summary time is the fallback order')
+  assert.equal(fallback.rows[0].approximate, true)
+
+  // The search narrows the window too.
+  const searched = board.boardColumnsOf(rows, 'idle-5', records).find((item) => item.state === 'finished')
+  assert.deepEqual(searched.rows.map((row) => row.id), ['idle-5'])
+})
+
 test('a column caps its rows and reports the real total', () => {
   const rows = []
   for (let index = 0; index < 60; index += 1) {
@@ -440,6 +484,7 @@ test('one dialog carries the two peer tabs with stable selectors and honest copy
   assert.match(source, /role: 'tabpanel'/)
   assert.match(source, /aria-selected/)
   assert.match(source, /boardFinished: '已结束·未读'/)
+  assert.match(source, /boardFinishedColumn: '已结束'/)
   assert.match(source, /regionFinished: '已结束·未读'/)
   assert.match(source, /boardTabStatus:/)
   assert.match(source, /boardTabRecent:/)

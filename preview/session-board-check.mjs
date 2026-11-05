@@ -6,9 +6,11 @@
  * gives the plugin the three things it reads from DSH (`sessions.list`,
  * `uiSession.sessionStatus`, `workspaces.list`) and a fake `uiWorkspace`. It
  * verifies the counts, the state derivation (blank, subagent and archived rows
- * excluded), the ordering inside each column, the filtered open from a pill,
- * navigation through a row, the ⇧⌘G toggle, search, Escape, live updates, the
- * collapsed rail, and the two settings switches. It also verifies the two tabs:
+ * excluded), the ordering inside each column, the finished column's five-card
+ * recent window over read and unread ended sessions (ranked by the host's
+ * activity time), the filtered open from a pill, navigation through a row, the
+ * ⇧⌘G toggle, search, Escape, live updates, the collapsed rail, and the two
+ * settings switches. It also verifies the two tabs:
  * the shortcut and a status pill land on the status board, the sidebar's Recent
  * action reaches the recent tab even when every count is zero, the recent list
  * is cross-workspace and excludes blank/archived/subagent rows, its first page

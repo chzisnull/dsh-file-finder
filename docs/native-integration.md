@@ -921,8 +921,9 @@ the opener's.
 The session board (0.13.0) is a pure client view over facts DSH already keeps.
 Since 0.14.0 it is one dialog with two peer tabs: the **Status board** below,
 and **Recent sessions**, which adds the plugin's own durable activity and
-access times on the host (§11). The status half still reads only DSH facts:
-it reads four surfaces, all of them declared in package types:
+access times on the host (§11). The status half reads DSH facts plus, since
+0.15.0, the same host activity read used by Recent — no new surface and no new
+data: it reads five surfaces, all of them declared in package types:
 
 | Read | Shape | Used for |
 | --- | --- | --- |
@@ -930,6 +931,7 @@ it reads four surfaces, all of them declared in package types:
 | `ctx.uiSession.sessionStatus` | `HostObservable<Map<SessionId, SessionStatus>>` | `running`, `pendingInteraction` (kinds `approval`, `question`, `plan-review`), `completionUnread` |
 | `ctx.workspaces.list` | snapshot with `items` (`title`, `sessionIds`) and `archivedSessionIds` | workspace titles in rows and search, and dropping archived sessions from the counts |
 | `ctx.uiWorkspace.openSession(id)` | navigation | opening a row |
+| `POST /dsh-file-finder/session-activity` (read, §11) | `{ activityAt, visitedAt }` per session | ranking the finished column's recent window; falls back to the session summary time when the read fails or a record is missing |
 
 Two slots carry the UI: `sidebar.footer.action` (a `list` slot whose owner share
 is `{ wide }`, so the counts know about the 56px rail) and `shell.overlay` (a
@@ -952,11 +954,21 @@ them, and the row keeps the label (`2 subagents`, `a subagent needs you`).
 **`completionUnread` is client-only.** It is a per-page `Set` in
 `ui-session`: a session is added when a running Agent stops while the user is
 elsewhere, and removed when that session becomes the main view or the page
-reloads. The column is therefore labelled **finished unread** (已结束·未读): it
-means *a background run ended and has not been looked at*, not "historically
-completed" and not "succeeded". A stable historical counter would need Host data
-and was rejected as a non-actionable number; Recent sessions answers the
-"find it again" question instead (§11).
+reloads. It still names the sidebar count and the Recent tab's row state —
+**finished unread** (已结束·未读), *a background run ended and has not been
+looked at*, not "historically completed" and not "succeeded".
+
+**The finished column is a recent window (0.15.0, ADR 0004).** Because
+`completionUnread` clears itself, an unread-only column emptied whenever the
+user read the session or reloaded. The status column is therefore labelled
+**已结束**/**Finished** and lists the five newest **ended** sessions — DSH's
+finished-unread rows plus idle ones (blank, archived and subagent sessions
+still never own a row) — ranked by the newest of Activity time, Access time and
+the session summary time from §11. Its header count is the number of cards it
+lists, not a total over every ended session, and it has no "in total" line. A
+failed activity read or a missing record falls back to the summary time, which
+the row marks as approximate. The sidebar pill keeps the unread count, so a
+zero pill beside a populated column is expected and both numbers are accurate.
 
 **Degradation.** A shell without `uiSession` still answers `running` from
 `sessions.list` rows; a shell without `uiWorkspace` cannot navigate. Nothing in

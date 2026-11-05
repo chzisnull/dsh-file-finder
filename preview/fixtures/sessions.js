@@ -14,9 +14,11 @@
  * workspaces. They contribute nothing to the three counts (idle is not one of
  * them), so every existing count expectation stays valid; the browser check
  * uses them to exercise the Recent tab's 50-row page, "show more" and search
- * beyond the first page. The oldest of them is `done-read`: a session that
- * finished, was read, and is now idle — it has no count anywhere, so finding it
- * again is exactly what Recent is for.
+ * beyond the first page, and the status board's finished window (read idle
+ * sessions appear there, newest first). The oldest of them is `done-read`: a
+ * session that finished, was read, and is now idle — it has no count anywhere,
+ * so finding it again is exactly what Recent is for, and it is also the proof
+ * that the finished column is not an unread-only inbox.
  */
 (function () {
   var WORKSPACES = [

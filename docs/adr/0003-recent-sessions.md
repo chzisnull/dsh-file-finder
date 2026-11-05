@@ -1,6 +1,9 @@
 # ADR 0003 — Recent sessions beside the Status board
 
-Status: accepted (0.14.0)
+Status: accepted (0.14.0). The finished column's copy is amended by ADR 0004:
+the status column now lists a recent window of ended sessions; the
+"finished · unread" name still applies to the sidebar count and to a recent
+row's state label.
 
 ## Context
 

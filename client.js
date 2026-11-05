@@ -131,6 +131,7 @@ window.__ModuleLoader__.load({
         boardPending: '待确认',
         boardRunning: '进行中',
         boardFinished: '已结束·未读',
+        boardFinishedColumn: '已结束',
         boardIdle: '空闲',
         boardEmpty: '这一类现在是空的',
         boardRecentEmpty: '最近没有可显示的会话',
@@ -317,6 +318,7 @@ window.__ModuleLoader__.load({
         boardPending: 'Awaiting you',
         boardRunning: 'Running',
         boardFinished: 'Finished · unread',
+        boardFinishedColumn: 'Finished',
         boardIdle: 'Idle',
         boardEmpty: 'Nothing in this column',
         boardRecentEmpty: 'No recent sessions',
@@ -3982,15 +3984,24 @@ window.__ModuleLoader__.load({
     }
 
     // ── Session board ───────────────────────────────────────────────────────
-    // DSH already models the three states the board reports: `running` for a
-    // session whose Agent is working, `pendingInteraction` for one waiting on a
+    // DSH already models the states the board reports: `running` for a session
+    // whose Agent is working, `pendingInteraction` for one waiting on a
     // permission, an answer or a plan review, and `completionUnread` for one
     // that finished in the background and has not been looked at yet. The board
     // and the counts read those same facts, so they can never disagree with the
     // dots DSH draws in its own session list.
+    //
+    // The finished column is the one deliberate exception: DSH clears
+    // `completionUnread` when the session is opened or the page reloads, so an
+    // unread-only column empties itself and hides work the user just finished.
+    // That column is therefore a recent window over every ended session (read
+    // ones included), while the sidebar count keeps reporting the unread fact
+    // it can act on.
     const SESSION_STATE = { PENDING: 'pending', RUNNING: 'running', FINISHED: 'finished', IDLE: 'idle' }
     const SESSION_COLUMNS = [SESSION_STATE.PENDING, SESSION_STATE.RUNNING, SESSION_STATE.FINISHED]
     // One state, two label lengths: the board column and the sidebar pill.
+    // The pill counts unread completions (a fact to act on); the board column
+    // lists the recent window, so its label drops the "unread" qualifier.
     const SESSION_STATE_COPY = {
       [SESSION_STATE.PENDING]: { board: 'boardPending', region: 'regionPending' },
       [SESSION_STATE.RUNNING]: { board: 'boardRunning', region: 'regionRunning' },
@@ -3998,6 +4009,10 @@ window.__ModuleLoader__.load({
       [SESSION_STATE.IDLE]: { board: 'boardIdle', region: 'boardIdle' },
     }
     const BOARD_ROW_CAP = 50
+    // The finished column is a recent window, not a full history: five cards
+    // are enough to answer "what did I just finish?" without turning the
+    // attention board into a second Recent tab.
+    const BOARD_ENDED_LIMIT = 5
     const RECENT_PAGE = 50
     const RECENT_POLL_MS = 15_000
     // One narrow adapter owns the whole cross-task contract: path, body shapes
@@ -4325,8 +4340,17 @@ window.__ModuleLoader__.load({
 
     // Columns are filtered by the region's pill and by the search box, then
     // ordered for their own job: the longest wait first, the newest activity
-    // first, the newest completion first.
-    function boardColumnsOf(rows, query) {
+    // first, and — for the finished column — the newest end first.
+    //
+    // A finished row is any session with nothing left to do, not only the ones
+    // DSH still flags unread: an Agent that stopped and was read is still
+    // finished work. The column lists the newest five of those, ranked by the
+    // same newest-of-three facts the Recent tab uses (host activity, access,
+    // summary), because DSH's `updatedAt` only moves on a human prompt and
+    // would bury a long run that ended since. Its count is the number of cards
+    // it lists: this column is a recent window, so an "in total" line or a
+    // total over every ended session would be a number nothing can act on.
+    function boardColumnsOf(rows, query, records, pendingVisits) {
       const needle = String(query || '').trim().toLowerCase()
       const matched = needle
         ? rows.filter((row) => row.title.toLowerCase().includes(needle)
@@ -4334,10 +4358,22 @@ window.__ModuleLoader__.load({
         : rows
       const columns = []
       for (const state of SESSION_COLUMNS) {
+        if (state === SESSION_STATE.FINISHED) {
+          const ended = matched
+            .filter((row) => row.state === SESSION_STATE.FINISHED || row.state === SESSION_STATE.IDLE)
+            .map((row) => {
+              const time = recentTimeOf(row, records || {}, pendingVisits || {})
+              return { ...row, recentAt: time.at, recentSource: time.source, approximate: time.approximate }
+            })
+            .sort((left, right) => right.recentAt - left.recentAt)
+            .slice(0, BOARD_ENDED_LIMIT)
+          columns.push({ state, total: ended.length, rows: ended })
+          continue
+        }
         const column = matched.filter((row) => row.state === state)
-        // Awaiting: the longest wait first. Running and finished: the most
-        // recent activity first — DSH exposes no completion timestamp, so
-        // `updatedAt` is the closest honest proxy.
+        // Awaiting: the longest wait first. Running: the most recent activity
+        // first — DSH exposes no completion timestamp, so `updatedAt` is the
+        // closest honest proxy.
         column.sort(state === SESSION_STATE.PENDING
           ? (left, right) => left.updatedAt - right.updatedAt
           : (left, right) => right.updatedAt - left.updatedAt)
@@ -4482,16 +4518,24 @@ window.__ModuleLoader__.load({
         if (boardStore.state.open) boardStore.close()
       }, [settings.enabled])
 
-      // The recent tab keeps itself fresh from the existing session observables
-      // (list/status changes arrive as key events) plus a slow poll for the
-      // host's activity/visited times. It never polls per streamed token.
+      // The status board reads the host's activity facts once per open: the
+      // finished column ranks its recent window by them. Opening the Recent tab
+      // reads the same records; that tab additionally polls, because DSH exposes
+      // no client observable for "the Agent did something in a session you are
+      // not watching". Neither path touches the token stream.
       const idsKey = rows.map((row) => row.id).join('\u0000')
+      useEffect(() => {
+        if (!request.open || !settings.enabled) return undefined
+        const ids = idsKey ? idsKey.split('\u0000') : []
+        activityStore.read(ids)
+        return undefined
+      }, [request.open, settings.enabled, idsKey])
+
       useEffect(() => {
         if (!request.open || tab !== 'recent' || !settings.enabled) return undefined
         const ids = idsKey ? idsKey.split('\u0000') : []
         let disposed = false
         const read = () => { if (!disposed) activityStore.read(ids) }
-        read()
         const timer = setInterval(read, RECENT_POLL_MS)
         return () => {
           disposed = true
@@ -4515,9 +4559,14 @@ window.__ModuleLoader__.load({
 
       if (!settings.enabled || !presence.mounted) return null
 
-      const columns = boardColumnsOf(rows, query)
+      const columns = boardColumnsOf(rows, query, activity.records, activity.pendingVisits)
       const recent = recentRowsOf(rows, activity.records, query, recentLimit, activity.pendingVisits)
       const stateLabel = (state) => t(SESSION_STATE_COPY[state].board)
+      // The status column names the recent window it lists; a row's own state
+      // label in Recent sessions keeps the "unread" qualifier.
+      const columnLabel = (state) => (state === SESSION_STATE.FINISHED
+        ? t('boardFinishedColumn')
+        : stateLabel(state))
 
       function openSessionRow(id) {
         // A click from this plugin is a visit even when the main view is
@@ -4585,7 +4634,7 @@ window.__ModuleLoader__.load({
       },
       h('header', { className: 'dff-board-colhead' },
         h('span', { className: 'dff-board-dot', 'aria-hidden': 'true' }),
-        h('strong', null, stateLabel(column.state)),
+        h('strong', null, columnLabel(column.state)),
         h('span', { className: 'dff-board-n', 'data-count': String(column.total) }, String(column.total))),
       column.rows.length
         ? h('div', { className: 'dff-board-list' }, column.rows.map((row) => h('button', {
@@ -4604,7 +4653,8 @@ window.__ModuleLoader__.load({
           row.subagents
             ? h('span', { className: 'dff-board-sub' }, textOf(t, 'subagentCount', { count: row.subagents }))
             : null,
-          h('span', { className: 'dff-board-age' }, ageText(row.updatedAt, t))))))
+          h('span', { className: 'dff-board-age' },
+            row.recentAt === undefined ? ageText(row.updatedAt, t) : recentAge(row))))))
         : h('p', { className: 'dff-board-empty' }, query ? t('boardNoMatch') : t('boardEmpty')),
       column.total > column.rows.length
         ? h('p', { className: 'dff-board-more' }, textOf(t, 'boardMore', { count: column.total }))

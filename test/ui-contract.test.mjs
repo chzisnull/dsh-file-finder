@@ -339,7 +339,7 @@ test('the session board is an additive sidebar and overlay surface', () => {
   assert.match(source, /DEFAULT_SESSION_BOARD = \{ enabled: true, region: true, shortcut: true \}/)
   assert.match(source, /normalizeSessionBoard/)
   for (const key of [
-    'boardTitle', 'boardPending', 'boardRunning', 'boardFinished',
+    'boardTitle', 'boardPending', 'boardRunning', 'boardFinished', 'boardFinishedColumn',
     'settingsBoard', 'settingsBoardEnabled', 'settingsBoardRegion', 'settingsBoardShortcut',
     'regionPending', 'regionRunning', 'regionFinished',
   ]) {

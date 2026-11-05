@@ -45,11 +45,11 @@ _Avoid_: 打开方式 as a per-file setting, default view
 **Session board**:
 The plugin's overlay for the user's sessions, opened as one dialog with two
 peer tabs. The Status board keeps three columns — awaiting the user, running,
-and finished unread — and opens any of them. Recent sessions lists every session
-the user can act on, idle ones included, newest first. It is a view of DSH's
-session status plus the plugin's own recency facts, not a second store.
+and the Finished window — and opens any of them. Recent sessions lists every
+session the user can act on, idle ones included, newest first. It is a view of
+DSH's session status plus the plugin's own recency facts, not a second store.
 _Avoid_: 会话看板 as a task tracker, dashboard, kanban as a separate product,
-"all finished sessions"
+"all finished sessions" as a count or a fourth column
 
 **Status region**:
 The three counts at the sidebar foot (awaiting / running / finished unread) and
@@ -63,19 +63,31 @@ The one state a session contributes, taken from DSH's own facts in this order:
 awaiting the user (pending approval, question or plan review), running,
 finished unread, idle. Exactly one state per session. The counts only cover the
 sessions with something to show, so the three numbers add up to them; idle is
-not one of the counts and appears only in Recent sessions. Finished unread means
-a background run that ended and has not been looked at yet — opening the session
-or reloading the page clears it — not that the task succeeded, and not a
-historical completion list. A session's state includes its subagent descendants:
-a running subagent keeps the parent running and a waiting subagent makes the
-parent awaiting, while the parent still counts once.
+not one of the counts. Finished unread means a background run that ended and has
+not been looked at yet — opening the session or reloading the page clears it —
+not that the task succeeded, and not a historical completion list. A session's
+state includes its subagent descendants: a running subagent keeps the parent
+running and a waiting subagent makes the parent awaiting, while the parent still
+counts once.
+_Avoid_: 已完成 as a success claim, done state, a state per subagent
+
+**Finished window**:
+The Status board's third column: up to five of the newest ended sessions —
+DSH's finished-unread sessions plus idle ones, read or not — ranked by the
+newest of Activity time, Access time and DSH's session summary time. It answers
+"what just finished?", so its count is the number of cards it lists, not a total
+over every ended session. It is a recency proxy, not a completion log: it does
+not say the task succeeded and it survives neither a restart's read state nor a
+session that ended long ago. The sidebar's finished count still reports only
+the finished-unread fact.
+_Avoid_: history, completed tasks, done list, 已完成 as an unbounded
+history, a sixth column
 
 **Subagent rollup**:
 The rule that attaches subagent activity to the session it belongs to instead of
 counting subagents separately, walking the `parentId` chain the way DSH's own
 session list does.
-_Avoid_: status (reserved for DSH's `SessionStatus` fields), 已完成 as "all
-idle sessions"
+_Avoid_: status (reserved for DSH's `SessionStatus` fields)
 
 **Recent sessions**:
 The second peer tab of the Session board: one record per session across every

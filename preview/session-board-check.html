@@ -285,6 +285,44 @@
       check('the shortcut opens with every column', columns().length === 3, columns().length)
       check('columns keep their own state', columns().map(function (c) { return c.getAttribute('data-state') }).join(',') === 'pending,running,finished')
 
+      // ── The finished column: a recent window, not an unread box ───────────
+      // DSH clears `completionUnread` on read or reload, so an unread-only
+      // column empties itself. The column now ranks every ended session (read
+      // or unread) by the newest activity fact and lists the newest five, while
+      // the sidebar pill keeps counting the unread fact it can act on.
+      var finishedCol = board().querySelector('[data-dff-board-col="finished"]')
+      var finishedRows = finishedCol ? Array.prototype.slice.call(finishedCol.querySelectorAll('[data-dff-board-row]')) : []
+      var finishedIds = finishedRows.map(function (row) { return row.getAttribute('data-dff-board-row') })
+      check('the column names the recent window, not unread only',
+        text(finishedCol && finishedCol.querySelector('.dff-board-colhead strong')) === 'boardFinishedColumn',
+        text(finishedCol && finishedCol.querySelector('.dff-board-colhead strong')))
+      check('the finished column lists the five newest ended sessions',
+        finishedIds.join(',') === 'd1,d2,idle-0,idle-1,idle-2', finishedIds.join(','))
+      check('the finished count is the window size, not the history total',
+        text(finishedCol && finishedCol.querySelector('.dff-board-n')) === '5',
+        text(finishedCol && finishedCol.querySelector('.dff-board-n')))
+      check('a read idle session sits in the finished window',
+        finishedIds.indexOf('idle-0') >= 0, finishedIds.join(','))
+      check('the unread completions stay in the finished window',
+        finishedIds.indexOf('d1') >= 0 && finishedIds.indexOf('d2') >= 0, finishedIds.join(','))
+      check('running and awaiting sessions never enter the finished window',
+        finishedIds.every(function (id) {
+          return ['p1', 'p2', 'p3', 'p4', 'r1', 'r2', 'r3', 'r4', 'r5'].indexOf(id) < 0
+        }), finishedIds.join(','))
+      var finishedEmptyNote = finishedCol ? finishedCol.querySelector('.dff-board-more') : null
+      check('a capped recent window shows no unreachable total', !finishedEmptyNote)
+      // The host read this column ranks by lands after the first paint; the
+      // fallback is the approximate summary time, so wait for the exact age.
+      await settled(function () {
+        var first = board() && board().querySelector('[data-dff-board-col="finished"] [data-dff-board-row]')
+        return first && text(first).indexOf('recentApprox') < 0 ? true : null
+      }, 1500)
+      var firstFinished = board().querySelector('[data-dff-board-col="finished"] [data-dff-board-row]')
+      check('finished rows show the host activity time, not the approximate prompt time',
+        Boolean(firstFinished) && text(firstFinished).indexOf('ageMinute') >= 0
+          && text(firstFinished).indexOf('recentApprox') < 0,
+        text(firstFinished))
+
       // ── Search ────────────────────────────────────────────────────────────
       var input = board().querySelector('.dff-board-search input')
       setInput(input, 'CI')
@@ -298,7 +336,10 @@
       setInput(input, '接口服务')
       await new Promise(function (resolve) { setTimeout(resolve, 80) })
       var byWorkspace = board().querySelectorAll('[data-dff-board-row]')
-      check('search also matches the workspace title', byWorkspace.length === 3, byWorkspace.length)
+      check('search also matches the workspace title', byWorkspace.length === 8, byWorkspace.length)
+      check('a workspace search reaches the finished window as well',
+        board().querySelectorAll('[data-dff-board-col="finished"] [data-dff-board-row]').length === 5,
+        board().querySelectorAll('[data-dff-board-col="finished"] [data-dff-board-row]').length)
       setInput(input, '')
       await new Promise(function (resolve) { setTimeout(resolve, 80) })
 

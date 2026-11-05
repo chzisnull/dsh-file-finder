@@ -434,10 +434,12 @@ export function rankName(query, displayPath, options = {}) {
   // One dataset for every preview surface (preview/fixtures/sessions.js), so the
   // screenshots and the browser checks cannot drift apart. The Recent tab shot
   // needs more sessions than one page holds, so that state alone gets extras.
-  const fixture = window.dffSessionFixture.create({
-    lang,
-    idleExtras: state === 'session-recent' ? 60 : 0,
-  })
+  // The status board also gets a few read idle sessions: its finished column is
+  // a recent window over every ended session, not just the unread ones.
+  const idleExtras = state === 'session-recent'
+    ? 60
+    : state === 'session-board' || state === 'session-board-narrow' ? 8 : 0
+  const fixture = window.dffSessionFixture.create({ lang, idleExtras })
   sessionFixture = fixture
   const sessions = { list: observable(fixture.list) }
   const uiSession = { sessionStatus: observable(fixture.statuses) }
