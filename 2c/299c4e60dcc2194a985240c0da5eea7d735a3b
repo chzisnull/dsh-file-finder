@@ -1,0 +1,16 @@
+client.js
+  h_6c8eb9d3df9b52 4704,6005-6011
+preview/session-board-check.html
+  h_6c8eb9d3df9b52 410-422
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2c299c4e60dcc2194a985240c0da5eea7d735a3b",
+  "prompts": {},
+  "humans": {
+    "h_6c8eb9d3df9b52": {
+      "author": "caohanzhou123@163.com <caohanzhou123@163.com>"
+    }
+  }
+}
